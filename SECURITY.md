@@ -6,8 +6,8 @@ The project is currently maintained on the latest stable release line only.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.3 and later  | :white_check_mark: |
-| 1.2 and earlier  | :x:                |
+| 1.4 and later  | :white_check_mark: |
+| 1.3 and earlier  | :x:                |
 
 Please upgrade to the latest release before reporting a vulnerability unless you can reproduce the issue on the current supported version.
 
