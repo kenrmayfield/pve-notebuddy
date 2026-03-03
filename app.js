@@ -12,6 +12,8 @@ const previewShell = document.getElementById("previewShell");
 const themeToggleBtn = document.getElementById("themeToggleBtn");
 const themeIconEl = document.getElementById("themeIcon");
 const githubStarCountEl = document.getElementById("githubStarCount");
+const appVersionValueEl = document.getElementById("appVersionValue");
+const appVersionStatusEl = document.getElementById("appVersionStatus");
 const clearBtn = document.getElementById("clearBtn");
 const importBtn = document.getElementById("importBtn");
 const exportBtn = document.getElementById("exportBtn");
@@ -65,6 +67,7 @@ const rowConfigs = [
   { prefix: "custom", defaultAlign: "left", defaultTag: "none", bold: false, italic: false, strong: false, code: false },
 ];
 const ROW_KEYS = ["icon", "title", "fqdn", "network", "config", "custom"];
+const APP_VERSION = document.querySelector('meta[name="app-version"]')?.getAttribute("content")?.trim() || "dev";
 
 // ===== Generic DOM / Value Helpers =====
 function getEl(id) {
@@ -74,6 +77,52 @@ function getEl(id) {
 function getSelectedRadioValue(name, fallback = "") {
   const checked = form.querySelector(`input[name="${name}"]:checked`);
   return checked ? checked.value : fallback;
+}
+
+function normalizeVersion(version) {
+  return String(version || "")
+    .trim()
+    .replace(/^v/i, "");
+}
+
+function compareVersions(a, b) {
+  const left = normalizeVersion(a).split(/[.-]/);
+  const right = normalizeVersion(b).split(/[.-]/);
+  const maxLength = Math.max(left.length, right.length);
+
+  for (let index = 0; index < maxLength; index += 1) {
+    const leftPart = left[index] ?? "0";
+    const rightPart = right[index] ?? "0";
+    const leftNumber = Number.parseInt(leftPart, 10);
+    const rightNumber = Number.parseInt(rightPart, 10);
+    const bothNumeric = Number.isFinite(leftNumber) && Number.isFinite(rightNumber);
+
+    if (bothNumeric) {
+      if (leftNumber > rightNumber) {
+        return 1;
+      }
+      if (leftNumber < rightNumber) {
+        return -1;
+      }
+      continue;
+    }
+
+    const comparison = leftPart.localeCompare(rightPart, undefined, { numeric: true, sensitivity: "base" });
+    if (comparison !== 0) {
+      return comparison;
+    }
+  }
+
+  return 0;
+}
+
+function setVersionStatus(message, tone = "pending") {
+  if (!appVersionStatusEl) {
+    return;
+  }
+
+  appVersionStatusEl.textContent = message;
+  appVersionStatusEl.className = `footer-status footer-status-${tone}`;
 }
 
 function setSelectedRadioValue(name, value) {
@@ -1711,6 +1760,48 @@ async function loadGithubStarCount() {
   }
 }
 
+async function loadReleaseVersionStatus() {
+  if (appVersionValueEl) {
+    appVersionValueEl.textContent = APP_VERSION;
+  }
+  setVersionStatus("Checking latest release...", "pending");
+
+  try {
+    const res = await fetch("https://api.github.com/repos/JangaJones/pve-notebuddy/releases/latest");
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    const latestTag = normalizeVersion(data?.tag_name);
+    const releaseUrl = typeof data?.html_url === "string" && data.html_url ? data.html_url : "";
+
+    if (appVersionStatusEl && releaseUrl) {
+      appVersionStatusEl.href = releaseUrl;
+    }
+
+    if (!latestTag) {
+      setVersionStatus("Latest release could not be determined.", "error");
+      return;
+    }
+
+    const comparison = compareVersions(APP_VERSION, latestTag);
+    if (comparison < 0) {
+      setVersionStatus(`Update available: ${APP_VERSION} -> ${latestTag}`, "stale");
+      return;
+    }
+
+    if (comparison > 0) {
+      setVersionStatus(`Newer than latest release ${latestTag}`, "ok");
+      return;
+    }
+
+    setVersionStatus(`Up to date with ${latestTag}`, "ok");
+  } catch {
+    setVersionStatus("Release check unavailable.", "error");
+  }
+}
+
 // ===== App Bootstrap =====
 function bootstrap() {
   mountStyleToolbars();
@@ -1921,6 +2012,7 @@ function bootstrap() {
   setTheme("dark");
   prepareIcon();
   loadGithubStarCount();
+  loadReleaseVersionStatus();
 }
 
 bootstrap();

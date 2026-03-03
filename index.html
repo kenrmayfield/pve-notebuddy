@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="app-version" content="1.3.1" />
     <title>PVE NoteBuddy</title>
     <link rel="icon" type="image/svg+xml" href="./resources/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -314,7 +315,31 @@
         </div>
         </section>
       </main>
+
     </div>
+
+    <footer class="app-footer" aria-label="Application footer, version check and help">
+      <div class="app-footer-inner">
+        <div class="footer-left">
+          <div class="footer-version" aria-label="Current app version">
+            <span class="footer-version-label">Version</span>
+            <span id="appVersionValue" class="footer-version-value">1.3</span>
+          </div>
+          <a
+            id="appVersionStatus"
+            class="footer-status footer-status-pending"
+            href="https://github.com/JangaJones/pve-notebuddy/releases/latest"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-live="polite"
+          >
+            Checking latest release...
+          </a>
+        </div>
+        <div class="footer-copyright">© 2026 PVE NoteBuddy</div>
+        <div class="footer-spacer" aria-hidden="true"></div>
+      </div>
+    </footer>
 
     <script src="./app.js" defer></script>
   </body>
