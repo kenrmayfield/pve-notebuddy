@@ -2,6 +2,7 @@
 const MAX_OUTPUT_LENGTH = 8192;
 const MAX_IMPORT_FILE_BYTES = 1024 * 1024;
 const MAX_UPLOAD_SVG_BYTES = 1024 * 1024;
+const MAX_UPLOAD_RASTER_BYTES = 6 * 1024;
 const MAX_FETCHED_SVG_BYTES = 1024 * 1024;
 
 const form = document.getElementById("noteForm");
@@ -58,6 +59,7 @@ const addCustomRowBtn = document.getElementById("addCustomRowBtn");
 let activeTheme = "dark";
 let iconResolvedSrc = "";
 let uploadSvgText = "";
+let uploadImageDataUrl = "";
 const externalSvgCache = new Map();
 const selfhstVariantExistsCache = new Map();
 let prepareToken = 0;
@@ -258,6 +260,15 @@ function readTextFile(file) {
     reader.onload = () => resolve(String(reader.result || ""));
     reader.onerror = () => reject(new Error("Could not read file."));
     reader.readAsText(file);
+  });
+}
+
+function readDataUrlFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not read file."));
+    reader.readAsDataURL(file);
   });
 }
 
@@ -1426,6 +1437,11 @@ function updateLengthState(noteHtml) {
 
 function clearTextFields() {
   iconUrlEl.value = "";
+  uploadSvgText = "";
+  uploadImageDataUrl = "";
+  if (iconUploadEl) {
+    iconUploadEl.value = "";
+  }
   getEl("titleText").value = "";
 
   hostEntriesEl.innerHTML = "";
@@ -1609,7 +1625,7 @@ function validateSettingsSchema(settings, source = "settings") {
     if (!isPlainObject(settings.icon)) {
       throw new Error(`${source} icon must be an object.`);
     }
-    const iconAllowed = new Set(["align", "mode", "url", "embedSvg", "resizeWithWsrv", "scale", "colorVariant", "uploadSvgText"]);
+    const iconAllowed = new Set(["align", "mode", "url", "embedSvg", "resizeWithWsrv", "scale", "colorVariant", "uploadSvgText", "uploadImageDataUrl"]);
     for (const key of Object.keys(settings.icon)) {
       if (!iconAllowed.has(key)) {
         throw new Error(`${source} icon contains unsupported key "${key}".`);
@@ -1620,6 +1636,7 @@ function validateSettingsSchema(settings, source = "settings") {
     assertEnumValue(settings.icon.colorVariant, ["original", "dark", "light"], `${source} icon.colorVariant`);
     if (settings.icon.url !== undefined) assertMaxTextBytes(settings.icon.url, 4096, `${source} icon.url`);
     if (settings.icon.uploadSvgText !== undefined) assertMaxTextBytes(settings.icon.uploadSvgText, MAX_UPLOAD_SVG_BYTES, `${source} icon.uploadSvgText`);
+    if (settings.icon.uploadImageDataUrl !== undefined) assertMaxTextBytes(settings.icon.uploadImageDataUrl, MAX_IMPORT_FILE_BYTES, `${source} icon.uploadImageDataUrl`);
     if (settings.icon.embedSvg !== undefined && typeof settings.icon.embedSvg !== "boolean") {
       throw new Error(`${source} icon.embedSvg must be boolean.`);
     }
@@ -1815,6 +1832,7 @@ function collectSettings() {
       scale: iconScaleEl.value,
       colorVariant: getIconColorVariant(),
       uploadSvgText,
+      uploadImageDataUrl,
     },
     fields: {
       titleText: getEl("titleText").value,
@@ -1950,6 +1968,9 @@ async function applySettings(settings, options = {}) {
     }
     if (typeof settings.icon.uploadSvgText === "string") {
       uploadSvgText = settings.icon.uploadSvgText;
+    }
+    if (typeof settings.icon.uploadImageDataUrl === "string") {
+      uploadImageDataUrl = settings.icon.uploadImageDataUrl;
     }
   }
 
@@ -2285,7 +2306,7 @@ function updateIconControls() {
   const url = iconUrlEl.value.trim();
   const rasterLink = mode === "external" && isRasterUrl(url);
   const externalSvg = mode === "external" && isSvgUrl(url);
-  const showVariantControls = mode === "upload" || (externalSvg && iconEmbedSvgEl.checked && !isWsrvResizeEnabled());
+  const showVariantControls = (mode === "upload" && Boolean(uploadSvgText)) || (externalSvg && iconEmbedSvgEl.checked && !isWsrvResizeEnabled());
   if (iconVariantWrapEl) {
     iconVariantWrapEl.classList.toggle("hidden", !showVariantControls);
   }
@@ -2325,9 +2346,17 @@ async function prepareIcon() {
   }
 
   if (mode === "upload") {
+    if (uploadImageDataUrl) {
+      iconResolvedSrc = uploadImageDataUrl;
+      setIconStatus("Uploaded raster image embedded. Scaling and color transform are only available for SVG.");
+      updateIconControls();
+      renderOutput();
+      return;
+    }
+
     if (!uploadSvgText) {
       iconResolvedSrc = "";
-      setIconStatus("Upload an SVG to embed the icon.");
+      setIconStatus("Upload an SVG or PNG/JPEG/GIF/WEBP to directly embed the icon. 6 KB file size limit for raster images.");
       renderOutput();
       return;
     }
@@ -2602,29 +2631,42 @@ async function onIconUploadChange(event) {
   const [file] = event.target.files;
   if (!file) {
     uploadSvgText = "";
+    uploadImageDataUrl = "";
     await prepareIcon();
     return;
   }
 
-  const byType = file.type === "image/svg+xml";
-  const byName = /\.svg$/i.test(file.name);
-  if (!byType && !byName) {
+  const isSvg = file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
+  const isRaster = /^(image\/png|image\/jpe?g|image\/gif|image\/webp)$/i.test(file.type) || /\.(png|jpe?g|gif|webp)$/i.test(file.name);
+  if (!isSvg && !isRaster) {
     iconUploadEl.value = "";
     uploadSvgText = "";
-    setIconStatus("Only SVG upload is allowed. Use a CDN link for PNG/JPG/WEBP.", true);
-    await prepareIcon();
+    uploadImageDataUrl = "";
+    setIconStatus("Only SVG/PNG/JPEG/GIF/WEBP upload is allowed.", true);
+    updateIconControls();
+    renderOutput();
     return;
   }
 
   try {
-    assertFileSizeWithinLimit(file, MAX_UPLOAD_SVG_BYTES, "Uploaded SVG");
-    uploadSvgText = await readTextFile(file);
-    assertTextSizeWithinLimit(uploadSvgText, MAX_UPLOAD_SVG_BYTES, "Uploaded SVG");
+    if (isSvg) {
+      assertFileSizeWithinLimit(file, MAX_UPLOAD_SVG_BYTES, "Uploaded SVG");
+      uploadSvgText = await readTextFile(file);
+      assertTextSizeWithinLimit(uploadSvgText, MAX_UPLOAD_SVG_BYTES, "Uploaded SVG");
+      uploadImageDataUrl = "";
+    } else {
+      assertFileSizeWithinLimit(file, MAX_UPLOAD_RASTER_BYTES, "Uploaded raster image");
+      uploadImageDataUrl = await readDataUrlFile(file);
+      assertTextSizeWithinLimit(uploadImageDataUrl, MAX_OUTPUT_LENGTH, "Embedded raster image");
+      uploadSvgText = "";
+    }
     await prepareIcon();
   } catch (error) {
     uploadSvgText = "";
-    setIconStatus(error instanceof Error ? error.message : "Could not read uploaded SVG.", true);
-    await prepareIcon();
+    uploadImageDataUrl = "";
+    setIconStatus(error instanceof Error ? error.message : "Could not read uploaded icon file.", true);
+    updateIconControls();
+    renderOutput();
   }
 }
 
@@ -2700,16 +2742,16 @@ async function loadReleaseVersionStatus() {
 
     const comparison = compareVersions(APP_VERSION, latestTag);
     if (comparison < 0) {
-      setVersionStatus(`Update available: ${APP_VERSION} -> ${latestTag}`, "stale");
+      setVersionStatus(`Update available: ${latestTag}`, "stale");
       return;
     }
 
     if (comparison > 0) {
-      setVersionStatus(`Newer than latest release ${latestTag}`, "ok");
+      setVersionStatus(`Newer than ${latestTag}`, "ok");
       return;
     }
 
-    setVersionStatus(`Up to date with ${latestTag}`, "ok");
+    setVersionStatus(`Up to Date`, "ok");
   } catch {
     setVersionStatus("Release check unavailable.", "error");
   }
