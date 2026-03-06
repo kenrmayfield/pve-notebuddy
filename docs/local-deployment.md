@@ -1,6 +1,8 @@
 ## Local Deployment
 
-PVE NoteBuddy is Static & Client-Side. For Local Use, run the `main` Branch on any Lightweight Local WEB Server or directly from the Repository Root Directory/Custom Root Directory or Deploy the Contents to run on a Static WEB Server.
+PVE NoteBuddy is Static & Client-Side. 
+
+For Local Use, run the `main` Branch on any Lightweight Local WEB Server.
 
 ### PreRequisite 
 Clone NoteBuddy: `git clone --branch main https://github.com/JangaJones/pve-notebuddy.git`<br>
