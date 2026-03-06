@@ -143,8 +143,8 @@ yourdomain.com {
 }
 ```
 
-No Domain:
-- Development Mode
+No Domain Name:
+- Option 1: Development Mode
   tls internal instructs Caddy to Generate a Self-Signed Certificate for use.
 
 ```
@@ -158,7 +158,7 @@ No Domain:
 Access URL: https://(Localhost or IP Address)
 
 
-- Self-Signed Certificate Generated Manually
+- Opton 2: Self-Signed Certificate Generated Manually
 Create Self Certification Directory: mkdir -p /etc/caddy/selfcerts/
 `openssl req -x509 -newkey rsa:4096 -keyout /etc/caddy/selfcerts/key.pem -out /etc/caddy/selfcerts/cert.pem -days 365 -nodes -subj "/CN=localhost"`
 
