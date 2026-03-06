@@ -187,7 +187,24 @@ function isSvgUrl(url) {
 }
 
 function isRasterUrl(url) {
-  return /\.(png|jpe?g|webp)($|[?#])/i.test(url);
+  return /\.(png|gif|jpe?g|tif|webp)($|[?#])/i.test(url);
+}
+
+function isPathLikeUrl(value) {
+  const raw = String(value || "").trim();
+  return raw.startsWith("/") || raw.startsWith("./") || raw.startsWith("../");
+}
+
+function hasAllowedIconImageExtension(value) {
+  return /\.(svg|gif|jpe?g|png|tif|webp)($|[?#])/i.test(String(value || "").trim());
+}
+
+function isAllowedIconImageUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw || !hasAllowedIconImageExtension(raw)) {
+    return false;
+  }
+  return /^https?:/i.test(raw) || isPathLikeUrl(raw);
 }
 
 // ===== SVG Processing Helpers =====
@@ -895,7 +912,7 @@ function sanitizeImageSrc(value) {
 }
 
 function sanitizeCustomHtml(value, keepLineBreaks = false) {
-  const allowedTags = new Set([
+  const allowedTags = [
     "a",
     "b",
     "blockquote",
@@ -918,108 +935,140 @@ function sanitizeCustomHtml(value, keepLineBreaks = false) {
     "pre",
     "strong",
     "ul",
-  ]);
-  const blockedTags = new Set(["script", "style", "iframe", "object", "embed", "svg", "math"]);
-  const template = document.createElement("template");
-  template.innerHTML = String(value || "");
+  ];
+  const blockedTags = ["script", "style", "iframe", "object", "embed", "svg", "math"];
+  const rawValue = String(value || "");
+  const hasDomPurify = Boolean(window.DOMPurify && typeof window.DOMPurify.sanitize === "function");
+  if (!hasDomPurify) {
+    return textToHtml(rawValue, keepLineBreaks);
+  }
 
-  function sanitizeNode(node) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const escaped = escapeHtml(node.textContent || "");
-      return keepLineBreaks ? escaped.replaceAll("\n", "<br />") : escaped;
+  const fragment = window.DOMPurify.sanitize(rawValue, {
+    ALLOWED_TAGS: allowedTags,
+    FORBID_TAGS: blockedTags,
+    ALLOWED_ATTR: ["href", "target", "rel", "src", "alt", "title", "width", "height"],
+    ALLOW_DATA_ATTR: false,
+    KEEP_CONTENT: true,
+    RETURN_DOM_FRAGMENT: true,
+    SANITIZE_DOM: true,
+  });
+  const holder = document.createElement("div");
+  holder.append(fragment);
+
+  if (keepLineBreaks) {
+    const walker = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
+    const textNodes = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      textNodes.push(node);
+    }
+    for (const textNode of textNodes) {
+      const valueNow = textNode.textContent || "";
+      if (!valueNow.includes("\n") || !textNode.parentNode) {
+        continue;
+      }
+      const replacement = document.createDocumentFragment();
+      const parts = valueNow.split("\n");
+      for (let index = 0; index < parts.length; index += 1) {
+        if (index > 0) {
+          replacement.append(document.createElement("br"));
+        }
+        replacement.append(document.createTextNode(parts[index]));
+      }
+      textNode.parentNode.replaceChild(replacement, textNode);
+    }
+  }
+
+  function clearElementAttributes(el) {
+    for (const attr of Array.from(el.attributes)) {
+      el.removeAttribute(attr.name);
+    }
+  }
+
+  function unwrapElement(el) {
+    const parent = el.parentNode;
+    if (!parent) {
+      return;
+    }
+    while (el.firstChild) {
+      parent.insertBefore(el.firstChild, el);
+    }
+    parent.removeChild(el);
+  }
+
+  function sanitizeAnchorElement(el) {
+    const href = sanitizeHref(el.getAttribute("href"));
+    if (!href) {
+      unwrapElement(el);
+      return;
     }
 
-    if (node.nodeType !== Node.ELEMENT_NODE) {
-      return "";
+    const target = el.getAttribute("target") === "_blank" ? "_blank" : "";
+    const relTokens = new Set(
+      String(el.getAttribute("rel") || "")
+        .split(/\s+/)
+        .map((token) => token.trim().toLowerCase())
+        .filter(Boolean)
+    );
+    if (target === "_blank") {
+      relTokens.add("noopener");
+      relTokens.add("noreferrer");
     }
 
-    const tag = node.nodeName.toLowerCase();
-    if (blockedTags.has(tag)) {
-      return "";
+    clearElementAttributes(el);
+    el.setAttribute("href", href);
+    if (target) {
+      el.setAttribute("target", target);
+    }
+    if (relTokens.size > 0) {
+      el.setAttribute("rel", Array.from(relTokens).join(" "));
+    }
+    el.setAttribute("referrerpolicy", "no-referrer");
+  }
+
+  function sanitizeImageElement(el) {
+    const src = sanitizeImageSrc(el.getAttribute("src"));
+    if (!src) {
+      el.remove();
+      return;
     }
 
-    const childHtml = Array.from(node.childNodes)
-      .map((child) => sanitizeNode(child))
-      .join("");
-
-    if (!allowedTags.has(tag)) {
-      return childHtml;
+    const alt = el.getAttribute("alt");
+    const title = el.getAttribute("title");
+    const width = el.getAttribute("width");
+    const height = el.getAttribute("height");
+    clearElementAttributes(el);
+    el.setAttribute("src", src);
+    if (alt !== null) {
+      el.setAttribute("alt", alt);
     }
-
-    if (tag === "br") {
-      return "<br />";
+    if (title) {
+      el.setAttribute("title", title);
     }
-
-    if (tag === "hr") {
-      return "<hr />";
+    if (width && /^[0-9]{1,4}$/.test(width.trim())) {
+      el.setAttribute("width", width.trim());
     }
+    if (height && /^[0-9]{1,4}$/.test(height.trim())) {
+      el.setAttribute("height", height.trim());
+    }
+    el.setAttribute("referrerpolicy", "no-referrer");
+  }
 
+  for (const el of Array.from(holder.querySelectorAll("*"))) {
+    const tag = el.tagName.toLowerCase();
     if (tag === "a") {
-      const href = sanitizeHref(node.getAttribute("href"));
-      if (!href) {
-        return childHtml;
-      }
-
-      const target = node.getAttribute("target") === "_blank" ? '_blank' : "";
-      const relTokens = new Set(
-        String(node.getAttribute("rel") || "")
-          .split(/\s+/)
-          .map((token) => token.trim().toLowerCase())
-          .filter(Boolean)
-      );
-
-      if (target === "_blank") {
-        relTokens.add("noopener");
-        relTokens.add("noreferrer");
-      }
-
-      const attrs = [`href="${escapeHtml(href)}"`];
-      if (target) {
-        attrs.push(`target="${target}"`);
-      }
-      if (relTokens.size > 0) {
-        attrs.push(`rel="${escapeHtml(Array.from(relTokens).join(" "))}"`);
-      }
-      attrs.push('referrerpolicy="no-referrer"');
-
-      return `<a ${attrs.join(" ")}>${childHtml}</a>`;
+      sanitizeAnchorElement(el);
+      continue;
     }
 
     if (tag === "img") {
-      const src = sanitizeImageSrc(node.getAttribute("src"));
-      if (!src) {
-        return "";
-      }
-
-      const attrs = [`src="${escapeHtml(src)}"`];
-      const alt = node.getAttribute("alt");
-      const title = node.getAttribute("title");
-      const width = node.getAttribute("width");
-      const height = node.getAttribute("height");
-
-      if (alt !== null) {
-        attrs.push(`alt="${escapeHtml(alt)}"`);
-      }
-      if (title) {
-        attrs.push(`title="${escapeHtml(title)}"`);
-      }
-      if (width && /^[0-9]{1,4}$/.test(width.trim())) {
-        attrs.push(`width="${width.trim()}"`);
-      }
-      if (height && /^[0-9]{1,4}$/.test(height.trim())) {
-        attrs.push(`height="${height.trim()}"`);
-      }
-      attrs.push('referrerpolicy="no-referrer"');
-
-      return `<img ${attrs.join(" ")} />`;
+      sanitizeImageElement(el);
+      continue;
     }
 
-    return `<${tag}>${childHtml}</${tag}>`;
+    clearElementAttributes(el);
   }
 
-  return Array.from(template.content.childNodes)
-    .map((node) => sanitizeNode(node))
-    .join("");
+  return holder.innerHTML;
 }
 
 function wrapTextForHeading(textHtml, format) {
@@ -1304,6 +1353,165 @@ function collectRowState(prefix) {
 }
 
 // ===== Settings Import / Export =====
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertMaxTextBytes(value, maxBytes, label) {
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be a string.`);
+  }
+  assertTextSizeWithinLimit(value, maxBytes, label);
+}
+
+function assertEnumValue(value, allowed, label) {
+  if (value !== undefined && !allowed.includes(value)) {
+    throw new Error(`${label} contains an unsupported value.`);
+  }
+}
+
+function validateSettingsSchema(settings, source = "settings") {
+  if (!isPlainObject(settings)) {
+    throw new Error("Invalid settings format.");
+  }
+
+  const topAllowed = new Set(["version", "rowOrder", "theme", "icon", "fields", "rows"]);
+  for (const key of Object.keys(settings)) {
+    if (!topAllowed.has(key)) {
+      throw new Error(`${source} contains unsupported key "${key}".`);
+    }
+  }
+
+  if (settings.version !== undefined && !Number.isFinite(Number(settings.version))) {
+    throw new Error(`${source} version must be numeric.`);
+  }
+
+  if (settings.rowOrder !== undefined) {
+    if (Array.isArray(settings.rowOrder)) {
+      for (const key of settings.rowOrder) {
+        if (!ROW_KEYS.includes(key)) {
+          throw new Error(`${source} rowOrder contains an unknown row key.`);
+        }
+      }
+    } else if (isPlainObject(settings.rowOrder)) {
+      for (const [key, value] of Object.entries(settings.rowOrder)) {
+        if (!ROW_KEYS.includes(key)) {
+          throw new Error(`${source} rowOrder contains an unknown row key.`);
+        }
+        if (!["0", "1", 0, 1, false, true].includes(value)) {
+          throw new Error(`${source} rowOrder visibility must be 0/1/true/false.`);
+        }
+      }
+    } else {
+      throw new Error(`${source} rowOrder must be an array or object.`);
+    }
+  }
+
+  assertEnumValue(settings.theme, ["light", "dark"], `${source} theme`);
+
+  if (settings.icon !== undefined) {
+    if (!isPlainObject(settings.icon)) {
+      throw new Error(`${source} icon must be an object.`);
+    }
+    const iconAllowed = new Set(["align", "mode", "url", "embedSvg", "resizeWithWsrv", "scale", "colorVariant", "uploadSvgText"]);
+    for (const key of Object.keys(settings.icon)) {
+      if (!iconAllowed.has(key)) {
+        throw new Error(`${source} icon contains unsupported key "${key}".`);
+      }
+    }
+    assertEnumValue(settings.icon.align, ["left", "center", "right"], `${source} icon.align`);
+    assertEnumValue(settings.icon.mode, ["external", "upload", "none"], `${source} icon.mode`);
+    assertEnumValue(settings.icon.colorVariant, ["original", "dark", "light"], `${source} icon.colorVariant`);
+    if (settings.icon.url !== undefined) assertMaxTextBytes(settings.icon.url, 4096, `${source} icon.url`);
+    if (settings.icon.uploadSvgText !== undefined) assertMaxTextBytes(settings.icon.uploadSvgText, MAX_UPLOAD_SVG_BYTES, `${source} icon.uploadSvgText`);
+    if (settings.icon.embedSvg !== undefined && typeof settings.icon.embedSvg !== "boolean") {
+      throw new Error(`${source} icon.embedSvg must be boolean.`);
+    }
+    if (settings.icon.resizeWithWsrv !== undefined && typeof settings.icon.resizeWithWsrv !== "boolean") {
+      throw new Error(`${source} icon.resizeWithWsrv must be boolean.`);
+    }
+    if (settings.icon.scale !== undefined) {
+      const scale = Number.parseInt(String(settings.icon.scale), 10);
+      if (!Number.isFinite(scale) || scale < 32 || scale > 320) {
+        throw new Error(`${source} icon.scale must be between 32 and 320.`);
+      }
+    }
+  }
+
+  if (settings.fields !== undefined) {
+    if (!isPlainObject(settings.fields)) {
+      throw new Error(`${source} fields must be an object.`);
+    }
+    const fieldAllowed = new Set(["titleText", "fqdnLabel", "fqdnUrl", "networkText", "configLocations", "customText"]);
+    for (const key of Object.keys(settings.fields)) {
+      if (!fieldAllowed.has(key)) {
+        throw new Error(`${source} fields contains unsupported key "${key}".`);
+      }
+    }
+
+    if (settings.fields.titleText !== undefined) assertMaxTextBytes(settings.fields.titleText, 2048, `${source} fields.titleText`);
+    if (settings.fields.fqdnLabel !== undefined) assertMaxTextBytes(settings.fields.fqdnLabel, 2048, `${source} fields.fqdnLabel`);
+    if (settings.fields.fqdnUrl !== undefined) assertMaxTextBytes(settings.fields.fqdnUrl, 4096, `${source} fields.fqdnUrl`);
+    if (settings.fields.networkText !== undefined) assertMaxTextBytes(settings.fields.networkText, 4096, `${source} fields.networkText`);
+    if (settings.fields.customText !== undefined) assertMaxTextBytes(settings.fields.customText, MAX_IMPORT_FILE_BYTES, `${source} fields.customText`);
+
+    if (settings.fields.configLocations !== undefined) {
+      if (!Array.isArray(settings.fields.configLocations)) {
+        throw new Error(`${source} fields.configLocations must be an array.`);
+      }
+      if (settings.fields.configLocations.length > 128) {
+        throw new Error(`${source} fields.configLocations exceeds maximum entries.`);
+      }
+      for (const entry of settings.fields.configLocations) {
+        if (typeof entry === "string") {
+          assertMaxTextBytes(entry, 4096, `${source} config location`);
+          continue;
+        }
+        if (!isPlainObject(entry)) {
+          throw new Error(`${source} config location entries must be strings or objects.`);
+        }
+        const allowedKeys = new Set(["icon", "value"]);
+        for (const key of Object.keys(entry)) {
+          if (!allowedKeys.has(key)) {
+            throw new Error(`${source} config location contains unsupported key "${key}".`);
+          }
+        }
+        if (entry.icon !== undefined) assertMaxTextBytes(entry.icon, 64, `${source} config location icon`);
+        if (entry.value !== undefined) assertMaxTextBytes(entry.value, 4096, `${source} config location value`);
+      }
+    }
+  }
+
+  if (settings.rows !== undefined) {
+    if (!isPlainObject(settings.rows)) {
+      throw new Error(`${source} rows must be an object.`);
+    }
+    const validPrefixes = new Set(rowConfigs.map((config) => config.prefix));
+    for (const [prefix, row] of Object.entries(settings.rows)) {
+      if (!validPrefixes.has(prefix)) {
+        throw new Error(`${source} rows contains unknown row "${prefix}".`);
+      }
+      if (!isPlainObject(row)) {
+        throw new Error(`${source} row "${prefix}" must be an object.`);
+      }
+      const rowAllowed = new Set(["emoji", "align", "heading", "bold", "italic", "strong", "code"]);
+      for (const key of Object.keys(row)) {
+        if (!rowAllowed.has(key)) {
+          throw new Error(`${source} row "${prefix}" contains unsupported key "${key}".`);
+        }
+      }
+      if (row.emoji !== undefined) assertMaxTextBytes(row.emoji, 64, `${source} row "${prefix}" emoji`);
+      assertEnumValue(row.align, ["left", "center", "right"], `${source} row "${prefix}" align`);
+      assertEnumValue(row.heading, ["", "h1", "h2", "h3", "h4", "h5"], `${source} row "${prefix}" heading`);
+      for (const flag of ["bold", "italic", "strong", "code"]) {
+        if (row[flag] !== undefined && typeof row[flag] !== "boolean") {
+          throw new Error(`${source} row "${prefix}" ${flag} must be boolean.`);
+        }
+      }
+    }
+  }
+}
+
 function collectSettings() {
   const rows = {};
   for (const { prefix } of rowConfigs) {
@@ -1370,12 +1578,9 @@ function applyRowState(prefix, rowState = {}) {
 
 // Non-destructive apply: omitted properties are intentionally left untouched.
 async function applySettings(settings, options = {}) {
-  if (!settings || typeof settings !== "object") {
-    throw new Error("Invalid settings format.");
-  }
-
   const source = options && typeof options === "object" ? options.source : "";
-  let blockedImportedRemoteIcon = false;
+  validateSettingsSchema(settings, source || "settings");
+  let blockedImportedInvalidIcon = false;
 
   if (Array.isArray(settings.rowOrder)) {
     const requestedOrder = settings.rowOrder.filter((k) => ROW_KEYS.includes(k));
@@ -1406,9 +1611,9 @@ async function applySettings(settings, options = {}) {
     }
     if (typeof settings.icon.url === "string") {
       iconUrlEl.value = settings.icon.url;
-      if (source === "import" && isCrossOriginHttpUrl(settings.icon.url)) {
+      if (source === "import" && settings.icon.url.trim() && !isAllowedIconImageUrl(settings.icon.url)) {
         setIconMode("none");
-        blockedImportedRemoteIcon = true;
+        blockedImportedInvalidIcon = true;
       }
     }
     if (typeof settings.icon.embedSvg === "boolean") {
@@ -1460,8 +1665,8 @@ async function applySettings(settings, options = {}) {
   }
 
   await prepareIcon();
-  if (blockedImportedRemoteIcon) {
-    setIconStatus("Imported external icon URL was not auto-loaded. Review it and re-enable LINK to allow the request.", true);
+  if (blockedImportedInvalidIcon) {
+    setIconStatus("Imported icon URL blocked. Allowed image types: .svg .gif .jpeg .jpg .png .tif .webp", true);
   }
 }
 
@@ -1496,24 +1701,27 @@ async function importSettingsFromFile(event) {
   }
 }
 
+async function fetchAndApplySettings(path, source, errorMessage) {
+  try {
+    const res = await fetch(path, { cache: "no-store" });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const parsed = await res.json();
+    await applySettings(parsed, { source });
+    return true;
+  } catch {
+    console.error(errorMessage);
+    return false;
+  }
+}
+
 async function loadPresetByNumber(number) {
   const preset = Number.parseInt(String(number), 10);
   if (!Number.isFinite(preset) || preset < 1 || preset > 5) {
     return false;
   }
-
-  try {
-    const res = await fetch(`./templates/notebuddy-template-${preset}.json`, { cache: "no-store" });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    const parsed = await res.json();
-    await applySettings(parsed);
-    return true;
-  } catch {
-    console.error(`Could not load template ${preset}.`);
-    return false;
-  }
+  return fetchAndApplySettings(`./templates/notebuddy-template-${preset}.json`, "preset", `Could not load template ${preset}.`);
 }
 
 function flashLoadedPresetButton(buttonEl) {
@@ -1667,21 +1875,12 @@ function toPublicTemplatePath(file) {
 }
 
 // Load and apply a selected service template JSON from the catalog.
-async function loadPublicTemplateFile(file, displayName = "") {
+async function loadPublicTemplateFile(file) {
   const path = toPublicTemplatePath(file);
   if (!path) {
     return;
   }
-  try {
-    const res = await fetch(path, { cache: "no-store" });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    const parsed = await res.json();
-    await applySettings(parsed);
-  } catch {
-    console.error("Could not load selected public template.");
-  }
+  await fetchAndApplySettings(path, "template", "Could not load selected public template.");
 }
 
 // ===== Preview / Icon Rendering =====
@@ -1826,6 +2025,13 @@ async function prepareIcon() {
     return;
   }
 
+  if (!isAllowedIconImageUrl(url)) {
+    iconResolvedSrc = "";
+    setIconStatus("Unsupported icon URL. Allowed image types: .svg .gif .jpeg .jpg .png .tif .webp", true);
+    renderOutput();
+    return;
+  }
+
   if (isWsrvResizeEnabled()) {
     iconResolvedSrc = buildWsrvUrl(url, iconScaleEl.value);
     setIconStatus(`wsrv.nl resize enabled at ${iconScaleEl.value}px width.`);
@@ -1837,14 +2043,6 @@ async function prepareIcon() {
   if (isRasterUrl(url)) {
     iconResolvedSrc = url;
     setIconStatus("Raster image detected: link-only mode (no scaling). Use CDN-sized assets.");
-    updateIconControls();
-    renderOutput();
-    return;
-  }
-
-  if (!isSvgUrl(url)) {
-    iconResolvedSrc = url;
-    setIconStatus("Unknown extension: using direct link.");
     updateIconControls();
     renderOutput();
     return;
@@ -2233,7 +2431,7 @@ function bootstrap() {
       if (!file) {
         return;
       }
-      await loadPublicTemplateFile(file, name);
+      await loadPublicTemplateFile(file);
       closeTemplateSuggest();
     });
 
@@ -2253,7 +2451,7 @@ function bootstrap() {
       }
       templateSearchInputEl.value = name;
       setTemplateSearchClearVisibility();
-      await loadPublicTemplateFile(file, name);
+      await loadPublicTemplateFile(file);
       closeTemplateSuggest();
     });
 
