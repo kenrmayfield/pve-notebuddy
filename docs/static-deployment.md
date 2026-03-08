@@ -268,7 +268,7 @@ There will be Prompts to Enter Information; you can fill out the Information or 
 ```
 
 2. Update the Variable in the Caddy Configuration File: `/etc/cadddy/notebuddyconfig`<br>
-NOTE: (LOCALHOST DOMAIN.COM OR SERVER IP ADDRESS OR LOCALHOST).
+<b>NOTE:</b></b> (LOCALHOST DOMAIN.COM OR SERVER IP ADDRESS OR LOCALHOST).
 
 3. Create a WEB Content Directory: `/var/www/html/`<br>
 <b>NOTE:</b>Caddy does not create a Default WEB Content Directory.
@@ -283,14 +283,6 @@ NOTE: (LOCALHOST DOMAIN.COM OR SERVER IP ADDRESS OR LOCALHOST).
 
 1. Copy and Save Caddy Configuration File as notebuddyconfig: `/etc/cadddy/notebuddyconfig`<br>
 
-2. Create Self Certification Directory: `mkdir -p /etc/caddy/selfcerts/`<br>
-
-3. Generate Self Signed Certificate:<br>
-`openssl req -x509 -newkey rsa:4096 -keyout /etc/caddy/selfcerts/key.pem -out /etc/caddy/selfcerts/cert.pem -days 365 -nodes -subj "/CN=localhost"`<br>
-<b>NOTE:</b> All One Line Command.<br>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-There will be Prompts to Enter Information; you can fill out the Information or leave the Information blank.
-
 ```
 (LOCALHOST DOMAIN.COM OR SERVER IP ADDRESS OR LOCALHOST) {
     root * /var/www/html
@@ -298,6 +290,14 @@ There will be Prompts to Enter Information; you can fill out the Information or 
     tls /etc/caddy/selfcerts/cert.pem etc/caddy/selfcerts/key.pem
 }
 ```
+
+2. Create Self Certification Directory: `mkdir -p /etc/caddy/selfcerts/`<br>
+
+3. Generate Self Signed Certificate:<br>
+`openssl req -x509 -newkey rsa:4096 -keyout /etc/caddy/selfcerts/key.pem -out /etc/caddy/selfcerts/cert.pem -days 365 -nodes -subj "/CN=localhost"`<br>
+<b>NOTE:</b> All One Line Command.<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+There will be Prompts to Enter Information; you can fill out the Information or leave the Information blank.
 
 4. Update the Variable in the Caddy Configuration File: `/etc/cadddy/notebuddyconfig`<br>
    <b>NOTE:</b> (LOCALHOST DOMAIN.COM OR SERVER IP ADDRESS OR LOCALHOST).
@@ -422,12 +422,6 @@ server {
 
 3. Copy and Save Nginx Configuration File as notebuddyconfig: `/etc/nginx/sites-available/notebuddyconfig`
 
-4. Create Self Certification Directory: `mkdir /etc/ssl/selfcerts/`
-
-5. Generate Self Signed Certificate:<br>
-`openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/ssl/selfcerts/selfsigned.key -out /etc/ssl/selfcerts/selfsigned.crt`<br>
-<b>NOTE:</b>There will be Prompts to Enter Information; you can fill out the Information or leave the Information blank.
-
 ```
 server {
     listen 80;
@@ -451,23 +445,29 @@ server {
 }
 ```
 
-Update the Variables in the Apache Configuration File: `/etc/nginx/sites-available/notebuddyconfig`<br>
+4. Create Self Certification Directory: `mkdir /etc/ssl/selfcerts/`
+
+5. Generate Self Signed Certificate:<br>
+`openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/ssl/selfcerts/selfsigned.key -out /etc/ssl/selfcerts/selfsigned.crt`<br>
+<b>NOTE:</b>There will be Prompts to Enter Information; you can fill out the Information or leave the Information blank.
+
+6. Update the Variables in the Apache Configuration File: `/etc/nginx/sites-available/notebuddyconfig`<br>
 <b>NOTE:</b> (LOCAL DOMAIN.COM OR SERVER IP ADDRESS OR LOCALHOST).
 
-6. Add SSL Certificate and Private Key:<br>
+7. Add SSL Certificate and Private Key:<br>
    `/etc/ssl/fullchain.pem`<br>
    `/etc/ssl/privkey.pem`
 
-7. Add NoteBuddy index.html File to: `/var/www/html`
+8. Add NoteBuddy index.html File to: `/var/www/html`
 
-8. Create a Symbolic Link in /etc/nginx/sites-enabled/ to Enable the Site:<br>
+9. Create a Symbolic Link in /etc/nginx/sites-enabled/ to Enable the Site:<br>
    `ln -s /etc/nginx/sites-available/notebuddyconfig /etc/nginx/sites-enabled/`
 
-9. Test configuration: `nginx -t`
+10. Test configuration: `nginx -t`
 
-10. Restart Nginx: `systemctl restart nginx`
+11. Restart Nginx: `systemctl restart nginx`
 
-11. Access URL: `https://(LOCAL DOMAIN.COM OR SERVER IP ADDRESS OR LOCALHOST)`
+12. Access URL: `https://(LOCAL DOMAIN.COM OR SERVER IP ADDRESS OR LOCALHOST)`
 </details>          
 <!-- ############################################ End of NGINX Configuration File ########################################### -->
 
