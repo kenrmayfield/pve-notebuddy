@@ -1,5 +1,7 @@
 ## Local Deployment
 
+<img src="/resources/localhostingwebserver1.gif" align="right" height="160" alt="Local Hosting WEB Server GIF" />
+
 PVE NoteBuddy is Static & Client-Side. 
 
 For Local Use, run the `main` Branch on any Lightweight Local WEB Server.
@@ -23,9 +25,9 @@ NoteBuddy loads Template JSON Files Dynamically, and Modern Browsers Block those
 
 ### $\color{Blue}\large{\textsf{Run on a Local WEB Server}}$
 
-<!-- Start of Alpine NODEJS Simple HTTP WEB Server Install -->
+<!-- ############################ Start of ALPINE NODEJS Simple HTTP WEB Server Install ############################ -->
 <details>
-<summary><b>ALPINE SIMPLE HTTP SERVER INSTALL - NODEJS</b></summary><br>
+<summary><b>ALPINE SIMPLE HTTP SERVER INSTALL - NODEJS <img src="/resources/alpine.svg" height="25" alt="Alpine Logo" /><img src="/resources/nodejs.svg" height="25" alt="NodeJS Logo" /></b></summary><br>
 <b>NodeJS Simple HTTP Server (http.server module) Install</b> 
 
    `apk update`<br>
@@ -50,9 +52,11 @@ Check NodeJS and NPM Version:<br>
 
 5. Access URL: `http://(Localhost or HOST IP Address):8080`
 
-<b>Permanent Run - Start HTTP-Server Automatically on System Boot - Create NodeJS System Service Script(Service File) for Alpine</b>
+$\color{Red}\large{\textsf{Permanent Run}}$ - <b>Start HTTP-Server Automatically on System Boot - Create NodeJS System Service Script(Service File) for &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Alpine</b>
 
-1. Create Service Script(Service File): `/etc/init.d/httpserver`
+1. Install HTTP-Server: `npm install -g http-server`
+
+2. Create Service Script(Service File): `/etc/init.d/httpserver`
 
 ```
 #!/sbin/openrc-run
@@ -124,11 +128,11 @@ stop() {
 }
 ```
 
-2. Add Execute: `chmod +x /etc/init.d/httpserver`
+3. Add Execute: `chmod +x /etc/init.d/httpserver`
 
-3. Enable Service: `rc-update add httpserver default`
+4. Enable Service: `rc-update add httpserver default`
 
-4. Start Service: `rc-service httpserver start`
+5. Start Service: `rc-service httpserver start`
 
    Stop and Restart Service:<br>
    `rc-service httpserver stop`<br>
@@ -137,11 +141,11 @@ stop() {
    Status Service:<br>
    `rc-service httpserver restart`
 </details>
-<!-- End of Alpine NODEJS Simple HTTP WEB Server Install --> 
+<!-- ############################ End of ALPINE NODEJS Simple HTTP WEB Server Install ############################ --> 
 
-<!-- Start of Alpine PYTHON 3 Simple HTTP WEB Server Install -->
+<!-- ############################ Start of ALPINE PYTHON 3 Simple HTTP WEB Server Install ############################ -->
 <details>
-<summary><b>ALPINE SIMPLE HTTP SERVER INSTALL - PYTHON 3</b></summary><br>
+<summary><b>ALPINE SIMPLE HTTP SERVER INSTALL - PYTHON 3 <img src="/resources/alpine.svg" height="25" alt="Alpine Logo" /><img src="/resources/python.svg" height="25" alt="Python Logo" /></b></summary><br>
 <b>Python 3 Simple HTTP Server (http.server module) Install</b> 
 
    `apk update`<br>
@@ -157,7 +161,7 @@ Check Python 3 and PIP Version:<br>
 1. cd to Path: `cd /(Path)/(Directory to Serve)`
 
 2. Run in Background: python3 -m http.server 8080 &<br>
-   Foreground: python3 -m http.server 8080<br> 
+   Foreground: `python3 -m http.server 8080`<br> 
    <b>NOTE:</b> You will Lose Console Control with Foreground.<br>
          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 
          Control+C will not work.
@@ -169,9 +173,11 @@ Check Python 3 and PIP Version:<br>
       &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
       It is a included Module with Python 3 by Default.
 
-<b>Permanent Run - Start HTTP-Server Automatically on System Boot - Create Python 3 System Service Script(Service File) for Alpine</b>
+$\color{Red}\large{\textsf{Permanent Run}}$ - <b>Start HTTP-Server Automatically on System Boot - Create Python 3 System Service Script(Service File) for &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Alpine</b>
 
-1. Create Service Script(Service File): `/etc/init.d/httpserver`
+1. cd to Path: `cd /(Path)/(Directory to Serve)`
+
+2. Create Service Script(Service File): `/etc/init.d/httpserver`
 
 ```
 #!/sbin/openrc-run
@@ -248,11 +254,11 @@ stop() {
 }
 ```
 
-2. Add Execute: `chmod +x /etc/init.d/httpserver`
+3. Add Execute: `chmod +x /etc/init.d/httpserver`
 
-3. Enable Service: `rc-update add httpserver default`
+4. Enable Service: `rc-update add httpserver default`
 
-4. Start Service: `rc-service httpserver start`
+5. Start Service: `rc-service httpserver start`
 
    Stop and Restart Service:<br>
    `rc-service httpserver stop`<br>
@@ -261,11 +267,11 @@ stop() {
    Status Service:
    `rc-service httpserver status` 
 </details>
-<!-- End of Alpine PYTHON 3 Simple HTTP WEB Server Install -->
+<!-- ############################ End of ALPINE PYTHON 3 Simple HTTP WEB Server Install ############################ -->
 
-<!-- Start of Debian NODEJS Simple HTTP WEB Server Install -->
+<!-- ############################ Start of DEBIAN NODEJS Simple HTTP WEB Server Install ############################ -->
 <details>
-<summary><b>DEBIAN SIMPLE HTTP SERVER INSTALL - NODEJS</b></summary><br>
+<summary><b>DEBIAN SIMPLE HTTP SERVER INSTALL - NODEJS <img src="/resources/debian.svg" height="25" alt="Debian Logo" /><img src="/resources/nodejs.svg" height="25" alt="NodeJS Logo" /></b></summary><br>
 <b>NodeJS Simple HTTP Server (http.server module) Install</b>
 
    `apt update`<br>
@@ -290,9 +296,11 @@ Check NodeJS and NPM Version:<br>
 `node -v`<br>
 `npm -v`
 
-<b>Permanent Run - Start HTTP-Server Automatically on System Boot - Create NodeJS System Service Script and File for Debian</b>
+$\color{Red}\large{\textsf{Permanent Run}}$ - <b>Start HTTP-Server Automatically on System Boot - Create NodeJS System Service Script and File for &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Debian</b>
 
-1. Create Service Script: `/(Path)/start-http-server.sh`
+1. Install HTTP-Server: `npm install -g http-server`
+
+2. Create Service Script: `/(Path)/start-http-server.sh`
 
 ```
 #!/bin/bash
@@ -300,9 +308,9 @@ cd /notebuddy/
 http-server -p 8080 &
 ```
 
-2. Add Execute: `chmod +x /(Path)/start-http-server.sh`
+3. Add Execute: `chmod +x /(Path)/start-http-server.sh`
 
-3. Create Systemd Service File: `/etc/systemd/system/http-server.service`<br>
+4. Create Systemd Service File: `/etc/systemd/system/http-server.service`<br>
 <b>NOTE:</b> Update (PATH) Variable in Service File.
 
 ```
@@ -334,12 +342,12 @@ Stop or Start Service:<br>
 `systemctl restart http-server`
 
 </details>
-<!-- End of Debian NODEJS Simple HTTP WEB Server Install -->
+<!-- ############################ End of DEBIAN NODEJS Simple HTTP WEB Server Install ############################ -->
 
-<!-- Start of Debian PYTHON 3 Simple HTTP WEB Server Install -->
+<!-- ############################ Start of DEBIAN PYTHON 3 Simple HTTP WEB Server Install ############################ -->
 
 <details>
-<summary><b>DEBIAN SIMPLE HTTP SERVER INSTALL - PYTHON 3</b></summary><br>
+<summary><b>DEBIAN SIMPLE HTTP SERVER INSTALL - PYTHON 3 <img src="/resources/debian.svg" height="25" alt="Debian Logo" /><img src="/resources/python.svg" height="25" alt="PYthon Logo" /></b></summary><br>
 <b>Python 3 Simple HTTP Server (http.server module) Install</b><br>
 
 `apt update`<br>
@@ -356,7 +364,7 @@ Stop or Start Service:<br>
 
 2. Run in Background: `python3 -m http.server 8080 &`<br>
 Foreground: `python3 -m http.server 8080`<br>
-<b>NOTE:</b>You will Lose Console Control with Foreground.<br>
+<b>NOTE: </b>You will Lose Console Control with Foreground.<br>
       &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 
       Control+C will not work.<br> 
 
@@ -367,9 +375,11 @@ Foreground: `python3 -m http.server 8080`<br>
       &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
       It is a included Module with Python 3 by Default.
 
- <b>Permanent Run - Start HTTP-Server Automatically on System Boot - Create Python 3 System Service Script and File for Debian</b>
+ $\color{Red}\large{\textsf{Permanent Run}}$ - <b>Start HTTP-Server Automatically on System Boot - Create Python 3 System Service Script and File for &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Debian</b>
 
-1. Create Service Script: `/(Path)/start-http-server.sh`
+1. cd to Path: `cd /(PATH)/(Directory to Serve)`
+
+2. Create Service Script: `/(Path)/start-http-server.sh`
 
 ```
 #!/bin/bash
@@ -377,9 +387,9 @@ cd /notebuddy/
 /usr/bin/python3 -m http.server 8080 &
 ```
 
-2. Add Execute: `chmod +x /(PATH)/start-http-server.sh`<br>
+3. Add Execute: `chmod +x /(PATH)/start-http-server.sh`<br>
 
-3. Create Systemd Service File: `/etc/systemd/system/http-server.service`<br>                                                                <b>NOTE:</b> Update (PATH) Variable in Service File.  
+4. Create Systemd Service File: `/etc/systemd/system/http-server.service`<br>                                                                <b>NOTE:</b> Update (PATH) Variable in Service File.  
 
 ```
 [Unit]
@@ -398,12 +408,12 @@ WantedBy=multi-user.target
 ```
 
 
-4. Enable and Start Service:<br>
+5. Enable and Start Service:<br>
    `systemctl daemon-reload`<br>
    `systemctl enable http-server`<br>
    `systemctl start http-server`
    
-5. Check Service Status:<br>
+6. Check Service Status:<br>
    `systemctl status http-server`
 
 Stop or Start Service:<br>
@@ -411,11 +421,11 @@ Stop or Start Service:<br>
 `systemctl restart http-server`
 
 </details>
-<!-- End of Debian PYTHON 3 Simple HTTP WEB Server Install -->
+<!-- ############################ End of DEBIAN PYTHON 3 Simple HTTP WEB Server Install ############################ -->
 
-<!-- Start of Windows NODEJS Simple HTTP WEB Server Install -->
+<!-- ############################ Start of WINDOWS NODEJS Simple HTTP WEB Server Install ############################ -->
 <details>
-<summary><b>WINDOWS SIMPLE HTTP SERVER INSTALL - NODEJS</b></summary><br>
+<summary><b>WINDOWS SIMPLE HTTP SERVER INSTALL - NODEJS <img src="/resources/windowslegacy.svg" height="25" alt="Windows Legacy Logo" /><img src="/resources/nodejs.svg" height="25" alt="NodeJS Logo" /></b></summary><br>
 <b>NodeJS Simple HTTP Server (http.server module) Install</b>
 
 Download NodeJS for Windows 10 and Higher: `https://nodejs.org/en/download`
@@ -441,7 +451,7 @@ Stop HTTP Server: Control + C
 $\color{Red}\large{\textsf{Run As A Service:}}$ <b>Task Scheduler or NSSM</b>
 
 <b>TASK SCHEDULER FOR NODEJS:</b><br>
-<b>Permanent Run - Start HTTP-Server Automatically on System Boot - Create Task Scheduler NodeJS Service Script</b>
+$\color{Red}\large{\textsf{Permanent Run}}$ - <b>Start HTTP-Server Automatically on System Boot - Create Task Scheduler NodeJS Service Script</b>
 
 1. Create Batch File
 
@@ -522,11 +532,11 @@ start /b http-server
    D. Set Startup Type: Automatic<br>
    E. Click Start to Run the Service
 </details>
-<!-- End of Windows NODEJS Simple HTTP WEB Server Install -->
+<!-- ############################ End of WINDOWS NODEJS Simple HTTP WEB Server Install ############################ -->
 
-<!-- Start of Windows PYTHON 3 Simple HTTP WEB Server Install -->
+<!-- ############################ Start of WINDOWS PYTHON 3 Simple HTTP WEB Server Install ############################ -->
 <details>
-<summary><b>WINDOWS SIMPLE HTTP SERVER INSTALL - PYTHON 3</b></summary><br>
+<summary><b>WINDOWS SIMPLE HTTP SERVER INSTALL - PYTHON 3 <img src="/resources/windowslegacy.svg" height="25" alt="Windows Legacy Logo" /><img src="/resources/python.svg" height="25" alt="Python Logo" /></b></summary><br>
 <b>Python Simple HTTP Server (http.server module) Install</b>
 
 Download Python 3 Windows 10 or Higher: `https://www.python.org/downloads/`
@@ -550,7 +560,7 @@ Stop HTTP Server: Control + C
 $\color{Red}\large{\textsf{Run As A Service:}}$ <b>Task Scheduler or NSSM</b>
 
 <b>TASK SCHEDULER FOR PYTHON:</b><br>
-<b>Permanent Run - Start HTTP-Server Automatically on System Boot - Create Task Scheduler Python Service Script for Windows</b>
+$\color{Red}\large{\textsf{Permanent Run}}$ - <b>Start HTTP-Server Automatically on System Boot - Create Task Scheduler Python Service Script for Windows</b>
 
 1. Create Batch File
 
@@ -635,5 +645,5 @@ cd "C:\(PATH)\(Directory to Serve)"
    D. Set Startup Type: Automatic<br>
    E. Click Start to Run the Service
 </details>
-<!-- End of Windows PYTHON 3 Simple HTTP WEB Server Install -->
+<!-- ############################ END of WINDOWS PYTHON 3 Simple HTTP WEB Server Install ############################ -->
 
