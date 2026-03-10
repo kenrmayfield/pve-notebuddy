@@ -5,7 +5,7 @@
     "resizeWithWsrv": true
   },
   "fields": {
-    "titleText": "Alpine-Tinyauth",
+    "titleText": "Tinyauth",
     "fqdnLabel": "tinyauth.app",
     "fqdnUrl": "https://tinyauth.app",
     "networkText": "Default Port: 3000",

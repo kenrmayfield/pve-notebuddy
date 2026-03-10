@@ -11,9 +11,10 @@ const JSON_ROOT = "frontend/public/json/";
 // Local paths: read from crawl cache, write transformed templates + index.
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(SCRIPT_DIR, "..");
+const TEMPLATES_DIR = path.join(ROOT_DIR, "templates");
 const SERVICES_DIR = path.join(ROOT_DIR, "templates", "services");
 const CRAWL_TEMP_DIR = path.join(SCRIPT_DIR, "crawl-temp");
-const INDEX_PATH = path.join(SERVICES_DIR, "index.json");
+const INDEX_PATH = path.join(TEMPLATES_DIR, "index.json");
 const REPORT_PATH = path.join(CRAWL_TEMP_DIR, "generate-report.json");
 
 // Entries that are not actual container service templates.
@@ -297,8 +298,10 @@ async function main() {
     scannedFiles: crawledFiles.length,
     generatedTemplates: 0,
     skippedFiles: 0,
+    duplicateEntries: 0,
     errors: [],
     generated: [],
+    duplicates: [],
     dryRun: DRY_RUN,
   };
 
@@ -352,16 +355,39 @@ async function main() {
     report.generated.push({ sourcePath, file: outFile, name: entryName });
   }
 
-  indexTemplates.sort((a, b) => a.name.localeCompare(b.name));
+  indexTemplates.sort((a, b) => a.name.localeCompare(b.name) || a.file.localeCompare(b.file));
+  const dedupedIndexTemplates = [];
+  const seenNames = new Map();
+  for (const entry of indexTemplates) {
+    const key = ensureString(entry.name).toLowerCase();
+    if (!key) {
+      dedupedIndexTemplates.push(entry);
+      continue;
+    }
+    const firstSeen = seenNames.get(key);
+    if (firstSeen) {
+      report.duplicateEntries += 1;
+      report.duplicates.push({
+        name: entry.name,
+        file: entry.file,
+        source: entry.source,
+        duplicateOf: firstSeen.source,
+      });
+      continue;
+    }
+    seenNames.set(key, entry);
+    dedupedIndexTemplates.push(entry);
+  }
 
   if (!DRY_RUN) {
-    await writeJson(INDEX_PATH, { templates: indexTemplates });
+    await writeJson(INDEX_PATH, { templates: dedupedIndexTemplates });
   }
   await writeJson(REPORT_PATH, report);
 
   console.log(`Scanned crawled JSON files: ${report.scannedFiles}`);
   console.log(`Generated templates: ${report.generatedTemplates}`);
   console.log(`Skipped files: ${report.skippedFiles}`);
+  console.log(`Duplicate entries skipped: ${report.duplicateEntries}`);
   console.log(`Errors: ${report.errors.length}`);
   if (DRY_RUN) {
     console.log("Dry run mode: no files written to /templates/services.");

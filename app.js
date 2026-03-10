@@ -2,7 +2,10 @@
 const MAX_OUTPUT_LENGTH = 8192;
 const MAX_IMPORT_FILE_BYTES = 1024 * 1024;
 const MAX_UPLOAD_SVG_BYTES = 1024 * 1024;
+const MAX_UPLOAD_RASTER_BYTES = 6 * 1024;
 const MAX_FETCHED_SVG_BYTES = 1024 * 1024;
+const GITHUB_STARS_CACHE_TTL_MS = 30 * 60 * 1000;
+const GITHUB_RELEASE_CACHE_TTL_MS = 30 * 60 * 1000;
 
 const form = document.getElementById("noteForm");
 const outputEl = document.getElementById("output");
@@ -26,6 +29,12 @@ const templateSearchInputEl = document.getElementById("templateSearch");
 const templateSearchWrapEl = document.getElementById("templateSearchWrap");
 const templateSearchClearEl = document.getElementById("templateSearchClear");
 const templateSuggestEl = document.getElementById("templateSuggest");
+const emojiRailEl = document.getElementById("emojiRail");
+const emojiRailToggleEl = document.getElementById("emojiRailToggle");
+const emojiRailToggleCloseEl = emojiRailToggleEl?.querySelector(".emoji-rail-toggle-close") || null;
+const emojiRailToggleOpenIconEl = emojiRailToggleEl?.querySelector(".emoji-rail-toggle-open-icon") || null;
+const emojiRailListEl = document.getElementById("emojiRailList");
+const emojiRailStatusEl = document.getElementById("emojiRailStatus");
 const supportMenuBtn = document.getElementById("supportMenuBtn");
 const supportMenuList = document.getElementById("supportMenuList");
 
@@ -49,10 +58,16 @@ const iconVariantWrapEl = document.querySelector(".svg-variant-wrap");
 
 const configLocationsEl = document.getElementById("configLocations");
 const addConfigBtn = document.getElementById("addConfigBtn");
+const hostEntriesEl = document.getElementById("hostEntries");
+const addHostBtn = document.getElementById("addHostBtn");
+const networkEntriesEl = document.getElementById("networkEntries");
+const addNetworkBtn = document.getElementById("addNetworkBtn");
+const addCustomRowBtn = document.getElementById("addCustomRowBtn");
 
 let activeTheme = "dark";
 let iconResolvedSrc = "";
 let uploadSvgText = "";
+let uploadImageDataUrl = "";
 const externalSvgCache = new Map();
 const selfhstVariantExistsCache = new Map();
 let prepareToken = 0;
@@ -63,19 +78,73 @@ let publicTemplateCatalog = [];
 const presetLoadFlashTimers = new WeakMap();
 let blockImportedRemoteCustomImages = false;
 
-const rowConfigs = [
+const staticRowConfigs = [
   { prefix: "title", defaultAlign: "center", defaultTag: "h2", bold: false, italic: false, strong: false, code: false },
   { prefix: "fqdn", defaultAlign: "center", defaultTag: "h3", bold: false, italic: false, strong: false, code: false },
   { prefix: "network", defaultAlign: "center", defaultTag: "h3", bold: false, italic: false, strong: false, code: false },
   { prefix: "config", defaultAlign: "center", defaultTag: "none", bold: false, italic: true, strong: true, code: true },
-  { prefix: "custom", defaultAlign: "left", defaultTag: "none", bold: false, italic: false, strong: false, code: false },
 ];
-const ROW_KEYS = ["icon", "title", "fqdn", "network", "config", "custom"];
+const customRowDefaults = { prefix: "custom", defaultAlign: "left", defaultTag: "none", bold: false, italic: false, strong: false, code: false };
+const STATIC_ROW_KEYS = ["icon", "title", "fqdn", "network", "config"];
+const CUSTOM_ROW_KEY_RE = /^custom[1-9][0-9]*$/;
 const APP_VERSION = document.querySelector('meta[name="app-version"]')?.getAttribute("content")?.trim() || "dev";
+const EMOJI_RAIL_STORAGE_KEY = "pve-notebuddy:emoji-rail-collapsed";
+const PROXMOX_NOTE_EMOJIS = [
+  // Infrastructure / location
+  "🏠", "🌍", "🌎", "🌏", "🔗", "🌐", "🛰️", "✈️", "🚀",
+  // Devices / hardware
+  "📱", "💻", "🖥️", "⌨️", "🖨️", "🖱️", "🕹️", "💽", "💾", "🧲",
+  // Services / media
+  "🎧", "🎵", "🎹", "🎮", "📷", "📸", "🌄", "🎬", "📽️", "📺", "🎞️",
+  // Files / organization
+  "✉️", "🏷️", "📊", "🗃️", "📁", "📂", "🗂️", "📋", "📎", "🖇️", "📌", "📍",
+  // Security / diagnostics
+  "🔐", "🔓", "🔍", "🔎", "🛠️", "⚡️", "💥", "🚨", "🛑", "🧩", "🚧",
+  // Status / indicators
+  "✅", "☑️", "❎", "⭕️", "❌", "🚫", "❗️", "❇️", "✳️", "💠", "🔘", "🔹", "🔸", "➡️", "⭐️", "🌟", "💎",
+];
 
 // ===== Generic DOM / Value Helpers =====
 function getEl(id) {
   return document.getElementById(id);
+}
+
+function normalizeCustomRowKey(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "custom") {
+    return "custom1";
+  }
+  return CUSTOM_ROW_KEY_RE.test(raw) ? raw : "";
+}
+
+function isCustomRowKey(value) {
+  return Boolean(normalizeCustomRowKey(value));
+}
+
+function isValidRowKey(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  return STATIC_ROW_KEYS.includes(raw) || isCustomRowKey(raw);
+}
+
+function normalizeRowKey(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (STATIC_ROW_KEYS.includes(raw)) {
+    return raw;
+  }
+  return normalizeCustomRowKey(raw);
+}
+
+function getCustomRowFieldsets() {
+  return Array.from(form.querySelectorAll('fieldset[data-row-key]')).filter((fieldset) => isCustomRowKey(fieldset.getAttribute("data-row-key")));
+}
+
+function getNextCustomRowKey() {
+  const maxExisting = getCustomRowFieldsets().reduce((max, fieldset) => {
+    const key = normalizeCustomRowKey(fieldset.getAttribute("data-row-key"));
+    const num = Number.parseInt(key.replace("custom", ""), 10);
+    return Number.isFinite(num) ? Math.max(max, num) : max;
+  }, 0);
+  return `custom${maxExisting + 1}`;
 }
 
 function getSelectedRadioValue(name, fallback = "") {
@@ -187,7 +256,24 @@ function isSvgUrl(url) {
 }
 
 function isRasterUrl(url) {
-  return /\.(png|jpe?g|webp)($|[?#])/i.test(url);
+  return /\.(png|gif|jpe?g|tif|webp)($|[?#])/i.test(url);
+}
+
+function isPathLikeUrl(value) {
+  const raw = String(value || "").trim();
+  return raw.startsWith("/") || raw.startsWith("./") || raw.startsWith("../");
+}
+
+function hasAllowedIconImageExtension(value) {
+  return /\.(svg|gif|jpe?g|png|tif|webp)($|[?#])/i.test(String(value || "").trim());
+}
+
+function isAllowedIconImageUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw || !hasAllowedIconImageExtension(raw)) {
+    return false;
+  }
+  return /^https?:/i.test(raw) || isPathLikeUrl(raw);
 }
 
 // ===== SVG Processing Helpers =====
@@ -197,6 +283,15 @@ function readTextFile(file) {
     reader.onload = () => resolve(String(reader.result || ""));
     reader.onerror = () => reject(new Error("Could not read file."));
     reader.readAsText(file);
+  });
+}
+
+function readDataUrlFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not read file."));
+    reader.readAsDataURL(file);
   });
 }
 
@@ -236,6 +331,59 @@ function fetchWithPrivacy(url, options = {}) {
     referrerPolicy: "no-referrer",
     ...options,
   });
+}
+
+function readCacheEntry(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || typeof parsed.fetchedAt !== "number" || !("data" in parsed)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeCacheEntry(key, data) {
+  try {
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        fetchedAt: Date.now(),
+        data,
+      })
+    );
+  } catch {
+    // Ignore storage errors (private mode/quota).
+  }
+}
+
+async function fetchJsonWithCache({ url, cacheKey, ttlMs }) {
+  const now = Date.now();
+  const cached = readCacheEntry(cacheKey);
+  if (cached && now - cached.fetchedAt <= ttlMs) {
+    return cached.data;
+  }
+
+  try {
+    const res = await fetchWithPrivacy(url);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    writeCacheEntry(cacheKey, data);
+    return data;
+  } catch {
+    if (cached) {
+      return cached.data;
+    }
+    throw new Error("Cache miss and fetch failed.");
+  }
 }
 
 function parseAbsoluteHttpUrl(value) {
@@ -760,7 +908,7 @@ function styleToolbarHtml(prefix, defaults) {
 }
 
 function mountStyleToolbars() {
-  for (const config of rowConfigs) {
+  for (const config of staticRowConfigs) {
     const holder = document.querySelector(`.style-tools[data-prefix="${config.prefix}"]`);
     if (!holder) {
       continue;
@@ -769,54 +917,63 @@ function mountStyleToolbars() {
   }
 }
 
-// Keep conflicting style toggles mutually exclusive.
-function bindStyleConflicts() {
-  for (const { prefix } of rowConfigs) {
-    const bold = getEl(`${prefix}Bold`);
-    const strong = getEl(`${prefix}Strong`);
-    const headingToggles = form.querySelectorAll(`input[name="${prefix}Heading"]`);
-    if (!bold || !strong) {
-      continue;
-    }
+function bindStyleConflictsForPrefix(prefix) {
+  const bold = getEl(`${prefix}Bold`);
+  const strong = getEl(`${prefix}Strong`);
+  const headingToggles = form.querySelectorAll(`input[name="${prefix}Heading"]`);
+  if (!bold || !strong) {
+    return;
+  }
+  if (bold.dataset.boundStyleConflicts === "1") {
+    return;
+  }
+  bold.dataset.boundStyleConflicts = "1";
+  strong.dataset.boundStyleConflicts = "1";
 
-    for (const headingToggle of headingToggles) {
-      headingToggle.addEventListener("change", () => {
-        if (headingToggle.checked) {
-          for (const other of headingToggles) {
-            if (other !== headingToggle) {
-              other.checked = false;
-            }
+  for (const headingToggle of headingToggles) {
+    headingToggle.addEventListener("change", () => {
+      if (headingToggle.checked) {
+        for (const other of headingToggles) {
+          if (other !== headingToggle) {
+            other.checked = false;
           }
-          bold.checked = false;
-          strong.checked = false;
         }
-        renderOutput();
-      });
-    }
-
-    bold.addEventListener("change", () => {
-      if (bold.checked && strong.checked) {
+        bold.checked = false;
         strong.checked = false;
       }
-      if (bold.checked) {
-        for (const headingToggle of headingToggles) {
-          headingToggle.checked = false;
-        }
-      }
       renderOutput();
     });
+  }
 
-    strong.addEventListener("change", () => {
-      if (strong.checked && bold.checked) {
-        bold.checked = false;
+  bold.addEventListener("change", () => {
+    if (bold.checked && strong.checked) {
+      strong.checked = false;
+    }
+    if (bold.checked) {
+      for (const headingToggle of headingToggles) {
+        headingToggle.checked = false;
       }
-      if (strong.checked) {
-        for (const headingToggle of headingToggles) {
-          headingToggle.checked = false;
-        }
+    }
+    renderOutput();
+  });
+
+  strong.addEventListener("change", () => {
+    if (strong.checked && bold.checked) {
+      bold.checked = false;
+    }
+    if (strong.checked) {
+      for (const headingToggle of headingToggles) {
+        headingToggle.checked = false;
       }
-      renderOutput();
-    });
+    }
+    renderOutput();
+  });
+}
+
+// Keep conflicting style toggles mutually exclusive.
+function bindStyleConflicts() {
+  for (const { prefix } of staticRowConfigs) {
+    bindStyleConflictsForPrefix(prefix);
   }
 }
 
@@ -827,10 +984,10 @@ function getFormat(prefix) {
   return {
     align: checkedAlign ? checkedAlign.value : "center",
     tag: checkedHeading ? checkedHeading.value : "none",
-    bold: getEl(`${prefix}Bold`).checked,
-    italic: getEl(`${prefix}Italic`).checked,
-    strong: getEl(`${prefix}Strong`).checked,
-    code: getEl(`${prefix}Code`).checked,
+    bold: Boolean(getEl(`${prefix}Bold`)?.checked),
+    italic: Boolean(getEl(`${prefix}Italic`)?.checked),
+    strong: Boolean(getEl(`${prefix}Strong`)?.checked),
+    code: Boolean(getEl(`${prefix}Code`)?.checked),
   };
 }
 
@@ -895,7 +1052,7 @@ function sanitizeImageSrc(value) {
 }
 
 function sanitizeCustomHtml(value, keepLineBreaks = false) {
-  const allowedTags = new Set([
+  const allowedTags = [
     "a",
     "b",
     "blockquote",
@@ -918,108 +1075,140 @@ function sanitizeCustomHtml(value, keepLineBreaks = false) {
     "pre",
     "strong",
     "ul",
-  ]);
-  const blockedTags = new Set(["script", "style", "iframe", "object", "embed", "svg", "math"]);
-  const template = document.createElement("template");
-  template.innerHTML = String(value || "");
+  ];
+  const blockedTags = ["script", "style", "iframe", "object", "embed", "svg", "math"];
+  const rawValue = String(value || "");
+  const hasDomPurify = Boolean(window.DOMPurify && typeof window.DOMPurify.sanitize === "function");
+  if (!hasDomPurify) {
+    return textToHtml(rawValue, keepLineBreaks);
+  }
 
-  function sanitizeNode(node) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const escaped = escapeHtml(node.textContent || "");
-      return keepLineBreaks ? escaped.replaceAll("\n", "<br />") : escaped;
+  const fragment = window.DOMPurify.sanitize(rawValue, {
+    ALLOWED_TAGS: allowedTags,
+    FORBID_TAGS: blockedTags,
+    ALLOWED_ATTR: ["href", "target", "rel", "src", "alt", "title", "width", "height"],
+    ALLOW_DATA_ATTR: false,
+    KEEP_CONTENT: true,
+    RETURN_DOM_FRAGMENT: true,
+    SANITIZE_DOM: true,
+  });
+  const holder = document.createElement("div");
+  holder.append(fragment);
+
+  if (keepLineBreaks) {
+    const walker = document.createTreeWalker(holder, NodeFilter.SHOW_TEXT);
+    const textNodes = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      textNodes.push(node);
+    }
+    for (const textNode of textNodes) {
+      const valueNow = textNode.textContent || "";
+      if (!valueNow.includes("\n") || !textNode.parentNode) {
+        continue;
+      }
+      const replacement = document.createDocumentFragment();
+      const parts = valueNow.split("\n");
+      for (let index = 0; index < parts.length; index += 1) {
+        if (index > 0) {
+          replacement.append(document.createElement("br"));
+        }
+        replacement.append(document.createTextNode(parts[index]));
+      }
+      textNode.parentNode.replaceChild(replacement, textNode);
+    }
+  }
+
+  function clearElementAttributes(el) {
+    for (const attr of Array.from(el.attributes)) {
+      el.removeAttribute(attr.name);
+    }
+  }
+
+  function unwrapElement(el) {
+    const parent = el.parentNode;
+    if (!parent) {
+      return;
+    }
+    while (el.firstChild) {
+      parent.insertBefore(el.firstChild, el);
+    }
+    parent.removeChild(el);
+  }
+
+  function sanitizeAnchorElement(el) {
+    const href = sanitizeHref(el.getAttribute("href"));
+    if (!href) {
+      unwrapElement(el);
+      return;
     }
 
-    if (node.nodeType !== Node.ELEMENT_NODE) {
-      return "";
+    const target = el.getAttribute("target") === "_blank" ? "_blank" : "";
+    const relTokens = new Set(
+      String(el.getAttribute("rel") || "")
+        .split(/\s+/)
+        .map((token) => token.trim().toLowerCase())
+        .filter(Boolean)
+    );
+    if (target === "_blank") {
+      relTokens.add("noopener");
+      relTokens.add("noreferrer");
     }
 
-    const tag = node.nodeName.toLowerCase();
-    if (blockedTags.has(tag)) {
-      return "";
+    clearElementAttributes(el);
+    el.setAttribute("href", href);
+    if (target) {
+      el.setAttribute("target", target);
+    }
+    if (relTokens.size > 0) {
+      el.setAttribute("rel", Array.from(relTokens).join(" "));
+    }
+    el.setAttribute("referrerpolicy", "no-referrer");
+  }
+
+  function sanitizeImageElement(el) {
+    const src = sanitizeImageSrc(el.getAttribute("src"));
+    if (!src) {
+      el.remove();
+      return;
     }
 
-    const childHtml = Array.from(node.childNodes)
-      .map((child) => sanitizeNode(child))
-      .join("");
-
-    if (!allowedTags.has(tag)) {
-      return childHtml;
+    const alt = el.getAttribute("alt");
+    const title = el.getAttribute("title");
+    const width = el.getAttribute("width");
+    const height = el.getAttribute("height");
+    clearElementAttributes(el);
+    el.setAttribute("src", src);
+    if (alt !== null) {
+      el.setAttribute("alt", alt);
     }
-
-    if (tag === "br") {
-      return "<br />";
+    if (title) {
+      el.setAttribute("title", title);
     }
-
-    if (tag === "hr") {
-      return "<hr />";
+    if (width && /^[0-9]{1,4}$/.test(width.trim())) {
+      el.setAttribute("width", width.trim());
     }
+    if (height && /^[0-9]{1,4}$/.test(height.trim())) {
+      el.setAttribute("height", height.trim());
+    }
+    el.setAttribute("referrerpolicy", "no-referrer");
+  }
 
+  for (const el of Array.from(holder.querySelectorAll("*"))) {
+    const tag = el.tagName.toLowerCase();
     if (tag === "a") {
-      const href = sanitizeHref(node.getAttribute("href"));
-      if (!href) {
-        return childHtml;
-      }
-
-      const target = node.getAttribute("target") === "_blank" ? '_blank' : "";
-      const relTokens = new Set(
-        String(node.getAttribute("rel") || "")
-          .split(/\s+/)
-          .map((token) => token.trim().toLowerCase())
-          .filter(Boolean)
-      );
-
-      if (target === "_blank") {
-        relTokens.add("noopener");
-        relTokens.add("noreferrer");
-      }
-
-      const attrs = [`href="${escapeHtml(href)}"`];
-      if (target) {
-        attrs.push(`target="${target}"`);
-      }
-      if (relTokens.size > 0) {
-        attrs.push(`rel="${escapeHtml(Array.from(relTokens).join(" "))}"`);
-      }
-      attrs.push('referrerpolicy="no-referrer"');
-
-      return `<a ${attrs.join(" ")}>${childHtml}</a>`;
+      sanitizeAnchorElement(el);
+      continue;
     }
 
     if (tag === "img") {
-      const src = sanitizeImageSrc(node.getAttribute("src"));
-      if (!src) {
-        return "";
-      }
-
-      const attrs = [`src="${escapeHtml(src)}"`];
-      const alt = node.getAttribute("alt");
-      const title = node.getAttribute("title");
-      const width = node.getAttribute("width");
-      const height = node.getAttribute("height");
-
-      if (alt !== null) {
-        attrs.push(`alt="${escapeHtml(alt)}"`);
-      }
-      if (title) {
-        attrs.push(`title="${escapeHtml(title)}"`);
-      }
-      if (width && /^[0-9]{1,4}$/.test(width.trim())) {
-        attrs.push(`width="${width.trim()}"`);
-      }
-      if (height && /^[0-9]{1,4}$/.test(height.trim())) {
-        attrs.push(`height="${height.trim()}"`);
-      }
-      attrs.push('referrerpolicy="no-referrer"');
-
-      return `<img ${attrs.join(" ")} />`;
+      sanitizeImageElement(el);
+      continue;
     }
 
-    return `<${tag}>${childHtml}</${tag}>`;
+    clearElementAttributes(el);
   }
 
-  return Array.from(template.content.childNodes)
-    .map((node) => sanitizeNode(node))
-    .join("");
+  return holder.innerHTML;
 }
 
 function wrapTextForHeading(textHtml, format) {
@@ -1134,7 +1323,7 @@ function updateRowVisibilityUi(rowKey) {
     if (!(control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement || control instanceof HTMLButtonElement)) {
       continue;
     }
-    if (control.classList.contains("row-move") || control.classList.contains("row-visibility")) {
+    if (control.classList.contains("row-move") || control.classList.contains("row-visibility") || control.classList.contains("row-remove")) {
       control.disabled = false;
       continue;
     }
@@ -1156,11 +1345,11 @@ function toggleRowVisibility(rowKey) {
 }
 
 function initializeRowVisibility() {
-  for (const key of ROW_KEYS) {
+  const keys = Array.from(form.querySelectorAll("fieldset[data-row-key]"))
+    .map((fieldset) => fieldset.getAttribute("data-row-key"))
+    .filter(Boolean);
+  for (const key of keys) {
     const fieldset = getRowFieldset(key);
-    if (!fieldset) {
-      continue;
-    }
     if (!fieldset.hasAttribute("data-row-visible")) {
       fieldset.setAttribute("data-row-visible", "1");
     }
@@ -1202,6 +1391,47 @@ function getConfigLocationEntries() {
     .filter((entry) => entry.value);
 }
 
+function getHostEntries() {
+  return Array.from(hostEntriesEl.querySelectorAll(".host-entry-row"))
+    .map((row) => {
+      const iconInput = row.querySelector('input[data-host-icon="1"]');
+      const labelInput = row.querySelector('input[data-host-label="1"]');
+      const urlInput = row.querySelector('input[data-host-url="1"]');
+      return {
+        icon: iconInput ? iconInput.value : "",
+        label: labelInput ? labelInput.value.trim() : "",
+        url: urlInput ? urlInput.value.trim() : "",
+      };
+    })
+    .filter((entry) => entry.label);
+}
+
+function getNetworkEntries() {
+  return Array.from(networkEntriesEl.querySelectorAll(".network-entry-row"))
+    .map((row) => {
+      const iconInput = row.querySelector('input[data-network-icon="1"]');
+      const valueInput = row.querySelector('input[data-network-value="1"]');
+      return {
+        icon: iconInput ? iconInput.value : "",
+        value: valueInput ? valueInput.value.trim() : "",
+      };
+    })
+    .filter((entry) => entry.value);
+}
+
+function getCustomRowEntries() {
+  return getCustomRowFieldsets()
+    .map((fieldset) => {
+      const key = normalizeCustomRowKey(fieldset.getAttribute("data-row-key"));
+      const textarea = fieldset.querySelector('textarea[data-custom-text="1"]');
+      return {
+        id: key,
+        text: textarea ? textarea.value : "",
+      };
+    })
+    .filter((entry) => entry.id);
+}
+
 function buildNoteHtml() {
   const byKey = {};
   const lines = [];
@@ -1216,21 +1446,25 @@ function buildNoteHtml() {
     byKey.title = [buildTextRow({ align: format.align, icon: getEl("titleEmoji").value, textHtml: textToHtml(titleText), format })];
   }
 
-  const fqdnLabel = getEl("fqdnLabel").value.trim();
-  if (fqdnLabel) {
+  const hostEntries = getHostEntries();
+  if (hostEntries.length > 0) {
     const format = getFormat("fqdn");
-    const fqdnUrl = sanitizeFqdnHref(getEl("fqdnUrl").value);
-    const label = textToHtml(fqdnLabel);
-    const linked = fqdnUrl
-      ? `<a href="${escapeHtml(fqdnUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${label}</a>`
-      : label;
-    byKey.fqdn = [buildTextRow({ align: format.align, icon: getEl("fqdnEmoji").value, textHtml: linked, format })];
+    byKey.fqdn = hostEntries.map((entry) => {
+      const fqdnUrl = sanitizeFqdnHref(entry.url);
+      const label = textToHtml(entry.label);
+      const linked = fqdnUrl
+        ? `<a href="${escapeHtml(fqdnUrl)}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">${label}</a>`
+        : label;
+      return buildTextRow({ align: format.align, icon: entry.icon, textHtml: linked, format });
+    });
   }
 
-  const networkText = getEl("networkText").value.trim();
-  if (networkText) {
+  const networkEntries = getNetworkEntries();
+  if (networkEntries.length > 0) {
     const format = getFormat("network");
-    byKey.network = [buildTextRow({ align: format.align, icon: getEl("networkEmoji").value, textHtml: textToHtml(networkText), format })];
+    byKey.network = networkEntries.map((entry) =>
+      buildTextRow({ align: format.align, icon: entry.icon, textHtml: textToHtml(entry.value), format })
+    );
   }
 
   const configLocations = getConfigLocationEntries();
@@ -1241,10 +1475,13 @@ function buildNoteHtml() {
     );
   }
 
-  const customText = getEl("customText").value.trim();
-  if (customText) {
-    const format = getFormat("custom");
-    byKey.custom = [buildTextRow({ align: format.align, icon: "", textHtml: sanitizeCustomHtml(customText, true), format })];
+  for (const customRow of getCustomRowEntries()) {
+    const text = customRow.text.trim();
+    if (!text) {
+      continue;
+    }
+    const format = getFormat(customRow.id);
+    byKey[customRow.id] = [buildTextRow({ align: format.align, icon: "", textHtml: sanitizeCustomHtml(text, true), format })];
   }
 
   for (const key of getOrderedRowKeys()) {
@@ -1276,11 +1513,21 @@ function updateLengthState(noteHtml) {
 
 function clearTextFields() {
   iconUrlEl.value = "";
+  uploadSvgText = "";
+  uploadImageDataUrl = "";
+  if (iconUploadEl) {
+    iconUploadEl.value = "";
+  }
   getEl("titleText").value = "";
-  getEl("fqdnLabel").value = "";
-  getEl("fqdnUrl").value = "";
-  getEl("networkText").value = "";
-  getEl("customText").value = "";
+
+  hostEntriesEl.innerHTML = "";
+  hostEntriesEl.append(createHostEntryInput("", "", "🔗"));
+  networkEntriesEl.innerHTML = "";
+  networkEntriesEl.append(createNetworkEntryInput("", "🖥️"));
+  for (const fieldset of getCustomRowFieldsets()) {
+    fieldset.remove();
+  }
+  addCustomRow();
 
   const configInputs = configLocationsEl.querySelectorAll('input[data-config-location="1"]');
   for (const input of configInputs) {
@@ -1303,11 +1550,347 @@ function collectRowState(prefix) {
   };
 }
 
+function createCustomRowFieldset(rowKey, initialText = "") {
+  const key = normalizeCustomRowKey(rowKey);
+  if (!key) {
+    return null;
+  }
+
+  const fieldset = document.createElement("fieldset");
+  fieldset.className = "group";
+  fieldset.setAttribute("data-row-key", key);
+  fieldset.setAttribute("data-row-visible", "1");
+
+  const legend = document.createElement("legend");
+  legend.textContent = "Custom Note";
+
+  const controls = document.createElement("div");
+  controls.className = "row-grid row-controls no-icon";
+
+  const tools = document.createElement("div");
+  tools.className = "style-tools";
+  tools.setAttribute("data-prefix", key);
+  tools.innerHTML = styleToolbarHtml(key, customRowDefaults);
+
+  const reorder = document.createElement("div");
+  reorder.className = "row-reorder";
+  reorder.innerHTML = `
+    <button type="button" class="row-remove" data-row-key="${key}" title="Remove row">✕</button>
+    <button type="button" class="row-visibility" data-row-key="${key}" title="Hide row" aria-label="Hide row" aria-pressed="false">◉</button>
+    <button type="button" class="row-move" data-row-key="${key}" data-direction="up" title="Move up">↑</button>
+    <button type="button" class="row-move" data-row-key="${key}" data-direction="down" title="Move down">↓</button>
+  `;
+
+  controls.append(tools, reorder);
+
+  const fields = document.createElement("div");
+  fields.className = "row-grid row-fields";
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "span-2";
+  textarea.rows = 4;
+  textarea.placeholder = "Any additional note...";
+  textarea.value = initialText;
+  textarea.setAttribute("data-custom-text", "1");
+
+  fields.append(textarea);
+  fieldset.append(legend, controls, fields);
+  bindStyleConflictsForPrefix(key);
+  return fieldset;
+}
+
+function addCustomRow(initialText = "", explicitKey = "") {
+  const key = explicitKey ? normalizeCustomRowKey(explicitKey) : getNextCustomRowKey();
+  if (!key || getRowFieldset(key)) {
+    return null;
+  }
+  const fieldset = createCustomRowFieldset(key, initialText);
+  if (!fieldset) {
+    return null;
+  }
+  form.append(fieldset);
+  updateRowVisibilityUi(key);
+  return fieldset;
+}
+
+function syncCustomRows(customRows = []) {
+  for (const fieldset of getCustomRowFieldsets()) {
+    fieldset.remove();
+  }
+  const rows = customRows.length > 0 ? customRows : [{ id: "custom1", text: "" }];
+  for (const row of rows) {
+    addCustomRow(row.text || "", row.id || "");
+  }
+}
+
 // ===== Settings Import / Export =====
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertMaxTextBytes(value, maxBytes, label) {
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be a string.`);
+  }
+  assertTextSizeWithinLimit(value, maxBytes, label);
+}
+
+function assertEnumValue(value, allowed, label) {
+  if (value !== undefined && !allowed.includes(value)) {
+    throw new Error(`${label} contains an unsupported value.`);
+  }
+}
+
+function isLegacySettingsV1(value) {
+  if (value === 1) {
+    return true;
+  }
+  const raw = String(value || "").trim().toLowerCase();
+  return raw === "1" || raw === "v1";
+}
+
+function getSettingsSchemaMode(settings) {
+  if (!isPlainObject(settings)) {
+    return "modern";
+  }
+  if (isLegacySettingsV1(settings.version)) {
+    return "legacy";
+  }
+  if (settings.version === undefined && isPlainObject(settings.fields)) {
+    const legacyFieldKeys = ["fqdnLabel", "fqdnUrl", "networkText", "customText"];
+    if (legacyFieldKeys.some((key) => key in settings.fields)) {
+      return "legacy";
+    }
+  }
+  return "modern";
+}
+
+function validateSettingsSchema(settings, source = "settings") {
+  if (!isPlainObject(settings)) {
+    throw new Error("Invalid settings format.");
+  }
+
+  const topAllowed = new Set(["version", "rowOrder", "theme", "icon", "fields", "rows"]);
+  for (const key of Object.keys(settings)) {
+    if (!topAllowed.has(key)) {
+      throw new Error(`${source} contains unsupported key "${key}".`);
+    }
+  }
+
+  if (settings.version !== undefined && typeof settings.version !== "string" && typeof settings.version !== "number") {
+    throw new Error(`${source} version must be a string or number.`);
+  }
+  const schemaMode = getSettingsSchemaMode(settings);
+
+  if (settings.rowOrder !== undefined) {
+    if (Array.isArray(settings.rowOrder)) {
+      for (const key of settings.rowOrder) {
+        if (!isValidRowKey(key)) {
+          throw new Error(`${source} rowOrder contains an unknown row key.`);
+        }
+      }
+    } else if (isPlainObject(settings.rowOrder)) {
+      for (const [key, value] of Object.entries(settings.rowOrder)) {
+        if (!isValidRowKey(key)) {
+          throw new Error(`${source} rowOrder contains an unknown row key.`);
+        }
+        if (!["0", "1", 0, 1, false, true].includes(value)) {
+          throw new Error(`${source} rowOrder visibility must be 0/1/true/false.`);
+        }
+      }
+    } else {
+      throw new Error(`${source} rowOrder must be an array or object.`);
+    }
+  }
+
+  assertEnumValue(settings.theme, ["light", "dark"], `${source} theme`);
+
+  if (settings.icon !== undefined) {
+    if (!isPlainObject(settings.icon)) {
+      throw new Error(`${source} icon must be an object.`);
+    }
+    const iconAllowed = new Set(["align", "mode", "url", "embedSvg", "resizeWithWsrv", "scale", "colorVariant", "uploadSvgText", "uploadImageDataUrl"]);
+    for (const key of Object.keys(settings.icon)) {
+      if (!iconAllowed.has(key)) {
+        throw new Error(`${source} icon contains unsupported key "${key}".`);
+      }
+    }
+    assertEnumValue(settings.icon.align, ["left", "center", "right"], `${source} icon.align`);
+    assertEnumValue(settings.icon.mode, ["external", "upload", "none"], `${source} icon.mode`);
+    assertEnumValue(settings.icon.colorVariant, ["original", "dark", "light"], `${source} icon.colorVariant`);
+    if (settings.icon.url !== undefined) assertMaxTextBytes(settings.icon.url, 4096, `${source} icon.url`);
+    if (settings.icon.uploadSvgText !== undefined) assertMaxTextBytes(settings.icon.uploadSvgText, MAX_UPLOAD_SVG_BYTES, `${source} icon.uploadSvgText`);
+    if (settings.icon.uploadImageDataUrl !== undefined) assertMaxTextBytes(settings.icon.uploadImageDataUrl, MAX_IMPORT_FILE_BYTES, `${source} icon.uploadImageDataUrl`);
+    if (settings.icon.embedSvg !== undefined && typeof settings.icon.embedSvg !== "boolean") {
+      throw new Error(`${source} icon.embedSvg must be boolean.`);
+    }
+    if (settings.icon.resizeWithWsrv !== undefined && typeof settings.icon.resizeWithWsrv !== "boolean") {
+      throw new Error(`${source} icon.resizeWithWsrv must be boolean.`);
+    }
+    if (settings.icon.scale !== undefined) {
+      const scale = Number.parseInt(String(settings.icon.scale), 10);
+      if (!Number.isFinite(scale) || scale < 32 || scale > 320) {
+        throw new Error(`${source} icon.scale must be between 32 and 320.`);
+      }
+    }
+  }
+
+  if (settings.fields !== undefined) {
+    if (!isPlainObject(settings.fields)) {
+      throw new Error(`${source} fields must be an object.`);
+    }
+    const fieldAllowed =
+      schemaMode === "legacy"
+        ? new Set(["titleText", "fqdnLabel", "fqdnUrl", "networkText", "configLocations", "customText"])
+        : new Set(["titleText", "hostEntries", "networkEntries", "configLocations", "customRows"]);
+    for (const key of Object.keys(settings.fields)) {
+      if (!fieldAllowed.has(key)) {
+        throw new Error(`${source} fields contains unsupported key "${key}".`);
+      }
+    }
+
+    if (settings.fields.titleText !== undefined) assertMaxTextBytes(settings.fields.titleText, 2048, `${source} fields.titleText`);
+    if (schemaMode === "legacy") {
+      if (settings.fields.fqdnLabel !== undefined) assertMaxTextBytes(settings.fields.fqdnLabel, 2048, `${source} fields.fqdnLabel`);
+      if (settings.fields.fqdnUrl !== undefined) assertMaxTextBytes(settings.fields.fqdnUrl, 4096, `${source} fields.fqdnUrl`);
+      if (settings.fields.networkText !== undefined) assertMaxTextBytes(settings.fields.networkText, 4096, `${source} fields.networkText`);
+      if (settings.fields.customText !== undefined) assertMaxTextBytes(settings.fields.customText, MAX_IMPORT_FILE_BYTES, `${source} fields.customText`);
+    }
+    if (schemaMode !== "legacy" && settings.fields.customRows !== undefined) {
+      if (!Array.isArray(settings.fields.customRows)) {
+        throw new Error(`${source} fields.customRows must be an array.`);
+      }
+      if (settings.fields.customRows.length > 128) {
+        throw new Error(`${source} fields.customRows exceeds maximum entries.`);
+      }
+      for (const entry of settings.fields.customRows) {
+        if (!isPlainObject(entry)) {
+          throw new Error(`${source} custom row must be an object.`);
+        }
+        const allowedKeys = new Set(["id", "text"]);
+        for (const key of Object.keys(entry)) {
+          if (!allowedKeys.has(key)) {
+            throw new Error(`${source} custom row contains unsupported key "${key}".`);
+          }
+        }
+        if (entry.id !== undefined) {
+          const normalized = normalizeCustomRowKey(entry.id);
+          if (!normalized) {
+            throw new Error(`${source} custom row id must be "custom" or "customN".`);
+          }
+        }
+        if (entry.text !== undefined) assertMaxTextBytes(entry.text, MAX_IMPORT_FILE_BYTES, `${source} custom row text`);
+      }
+    }
+
+    if (schemaMode !== "legacy" && settings.fields.hostEntries !== undefined) {
+      if (!Array.isArray(settings.fields.hostEntries)) {
+        throw new Error(`${source} fields.hostEntries must be an array.`);
+      }
+      if (settings.fields.hostEntries.length > 128) {
+        throw new Error(`${source} fields.hostEntries exceeds maximum entries.`);
+      }
+      for (const entry of settings.fields.hostEntries) {
+        if (!isPlainObject(entry)) {
+          throw new Error(`${source} host entry must be an object.`);
+        }
+        const allowedKeys = new Set(["icon", "label", "url"]);
+        for (const key of Object.keys(entry)) {
+          if (!allowedKeys.has(key)) {
+            throw new Error(`${source} host entry contains unsupported key "${key}".`);
+          }
+        }
+        if (entry.icon !== undefined) assertMaxTextBytes(entry.icon, 64, `${source} host entry icon`);
+        if (entry.label !== undefined) assertMaxTextBytes(entry.label, 2048, `${source} host entry label`);
+        if (entry.url !== undefined) assertMaxTextBytes(entry.url, 4096, `${source} host entry url`);
+      }
+    }
+
+    if (schemaMode !== "legacy" && settings.fields.networkEntries !== undefined) {
+      if (!Array.isArray(settings.fields.networkEntries)) {
+        throw new Error(`${source} fields.networkEntries must be an array.`);
+      }
+      if (settings.fields.networkEntries.length > 128) {
+        throw new Error(`${source} fields.networkEntries exceeds maximum entries.`);
+      }
+      for (const entry of settings.fields.networkEntries) {
+        if (!isPlainObject(entry)) {
+          throw new Error(`${source} network entry must be an object.`);
+        }
+        const allowedKeys = new Set(["icon", "value"]);
+        for (const key of Object.keys(entry)) {
+          if (!allowedKeys.has(key)) {
+            throw new Error(`${source} network entry contains unsupported key "${key}".`);
+          }
+        }
+        if (entry.icon !== undefined) assertMaxTextBytes(entry.icon, 64, `${source} network entry icon`);
+        if (entry.value !== undefined) assertMaxTextBytes(entry.value, 4096, `${source} network entry value`);
+      }
+    }
+
+    if (settings.fields.configLocations !== undefined) {
+      if (!Array.isArray(settings.fields.configLocations)) {
+        throw new Error(`${source} fields.configLocations must be an array.`);
+      }
+      if (settings.fields.configLocations.length > 128) {
+        throw new Error(`${source} fields.configLocations exceeds maximum entries.`);
+      }
+      for (const entry of settings.fields.configLocations) {
+        if (typeof entry === "string") {
+          assertMaxTextBytes(entry, 4096, `${source} config location`);
+          continue;
+        }
+        if (!isPlainObject(entry)) {
+          throw new Error(`${source} config location entries must be strings or objects.`);
+        }
+        const allowedKeys = new Set(["icon", "value"]);
+        for (const key of Object.keys(entry)) {
+          if (!allowedKeys.has(key)) {
+            throw new Error(`${source} config location contains unsupported key "${key}".`);
+          }
+        }
+        if (entry.icon !== undefined) assertMaxTextBytes(entry.icon, 64, `${source} config location icon`);
+        if (entry.value !== undefined) assertMaxTextBytes(entry.value, 4096, `${source} config location value`);
+      }
+    }
+  }
+
+  if (settings.rows !== undefined) {
+    if (!isPlainObject(settings.rows)) {
+      throw new Error(`${source} rows must be an object.`);
+    }
+    for (const [prefix, row] of Object.entries(settings.rows)) {
+      if (!(isCustomRowKey(prefix) || normalizeCustomRowKey(prefix) === "custom1" || ["title", "fqdn", "network", "config"].includes(prefix))) {
+        throw new Error(`${source} rows contains unknown row "${prefix}".`);
+      }
+      if (!isPlainObject(row)) {
+        throw new Error(`${source} row "${prefix}" must be an object.`);
+      }
+      const rowAllowed = new Set(["emoji", "align", "heading", "bold", "italic", "strong", "code"]);
+      for (const key of Object.keys(row)) {
+        if (!rowAllowed.has(key)) {
+          throw new Error(`${source} row "${prefix}" contains unsupported key "${key}".`);
+        }
+      }
+      if (row.emoji !== undefined) assertMaxTextBytes(row.emoji, 64, `${source} row "${prefix}" emoji`);
+      assertEnumValue(row.align, ["left", "center", "right"], `${source} row "${prefix}" align`);
+      assertEnumValue(row.heading, ["", "h1", "h2", "h3", "h4", "h5"], `${source} row "${prefix}" heading`);
+      for (const flag of ["bold", "italic", "strong", "code"]) {
+        if (row[flag] !== undefined && typeof row[flag] !== "boolean") {
+          throw new Error(`${source} row "${prefix}" ${flag} must be boolean.`);
+        }
+      }
+    }
+  }
+}
+
 function collectSettings() {
   const rows = {};
-  for (const { prefix } of rowConfigs) {
-    rows[prefix] = collectRowState(prefix);
+  for (const key of getOrderedRowKeys()) {
+    if (key === "icon") {
+      continue;
+    }
+    rows[key] = collectRowState(key);
   }
 
   const rowOrder = {};
@@ -1316,7 +1899,7 @@ function collectSettings() {
   }
 
   return {
-    version: 1,
+    version: APP_VERSION,
     rowOrder,
     theme: activeTheme,
     icon: {
@@ -1328,14 +1911,14 @@ function collectSettings() {
       scale: iconScaleEl.value,
       colorVariant: getIconColorVariant(),
       uploadSvgText,
+      uploadImageDataUrl,
     },
     fields: {
       titleText: getEl("titleText").value,
-      fqdnLabel: getEl("fqdnLabel").value,
-      fqdnUrl: getEl("fqdnUrl").value,
-      networkText: getEl("networkText").value,
+      hostEntries: getHostEntries(),
+      networkEntries: getNetworkEntries(),
       configLocations: getConfigLocationEntries(),
-      customText: getEl("customText").value,
+      customRows: getCustomRowEntries(),
     },
     rows,
   };
@@ -1370,20 +1953,59 @@ function applyRowState(prefix, rowState = {}) {
 
 // Non-destructive apply: omitted properties are intentionally left untouched.
 async function applySettings(settings, options = {}) {
-  if (!settings || typeof settings !== "object") {
-    throw new Error("Invalid settings format.");
+  const source = options && typeof options === "object" ? options.source : "";
+  validateSettingsSchema(settings, source || "settings");
+  let blockedImportedInvalidIcon = false;
+
+  const importedCustomRows = [];
+  if (settings.fields && typeof settings.fields === "object") {
+    if (Array.isArray(settings.fields.customRows)) {
+      for (const row of settings.fields.customRows) {
+        if (!row || typeof row !== "object") {
+          continue;
+        }
+        const id = normalizeCustomRowKey(row.id || "");
+        if (!id) {
+          continue;
+        }
+        importedCustomRows.push({ id, text: String(row.text || "") });
+      }
+    } else if (typeof settings.fields.customText === "string") {
+      importedCustomRows.push({ id: "custom1", text: settings.fields.customText });
+      blockImportedRemoteCustomImages = source === "import" && /<img\b/i.test(settings.fields.customText);
+    }
   }
 
-  const source = options && typeof options === "object" ? options.source : "";
-  let blockedImportedRemoteIcon = false;
+  if (settings.rows && typeof settings.rows === "object") {
+    for (const key of Object.keys(settings.rows)) {
+      const normalized = normalizeCustomRowKey(key);
+      if (normalized && !importedCustomRows.some((row) => row.id === normalized)) {
+        importedCustomRows.push({ id: normalized, text: "" });
+      }
+    }
+  }
+
+  if (settings.rowOrder) {
+    const keys = Array.isArray(settings.rowOrder) ? settings.rowOrder : Object.keys(settings.rowOrder);
+    for (const key of keys) {
+      const normalized = normalizeCustomRowKey(key);
+      if (normalized && !importedCustomRows.some((row) => row.id === normalized)) {
+        importedCustomRows.push({ id: normalized, text: "" });
+      }
+    }
+  }
+  blockImportedRemoteCustomImages = source === "import" && importedCustomRows.some((row) => /<img\b/i.test(String(row.text || "")));
+  syncCustomRows(importedCustomRows);
 
   if (Array.isArray(settings.rowOrder)) {
-    const requestedOrder = settings.rowOrder.filter((k) => ROW_KEYS.includes(k));
+    const requestedOrder = settings.rowOrder.map((k) => normalizeRowKey(k)).filter(Boolean);
     if (requestedOrder.length > 0) {
       reorderFieldsets(requestedOrder);
     }
   } else if (settings.rowOrder && typeof settings.rowOrder === "object") {
-    const entries = Object.entries(settings.rowOrder).filter(([key]) => ROW_KEYS.includes(key));
+    const entries = Object.entries(settings.rowOrder)
+      .map(([key, value]) => [normalizeRowKey(key), value])
+      .filter(([key]) => Boolean(key));
     if (entries.length > 0) {
       reorderFieldsets(entries.map(([key]) => key));
       for (const [key, rawVisible] of entries) {
@@ -1406,9 +2028,9 @@ async function applySettings(settings, options = {}) {
     }
     if (typeof settings.icon.url === "string") {
       iconUrlEl.value = settings.icon.url;
-      if (source === "import" && isCrossOriginHttpUrl(settings.icon.url)) {
+      if (source === "import" && settings.icon.url.trim() && !isAllowedIconImageUrl(settings.icon.url)) {
         setIconMode("none");
-        blockedImportedRemoteIcon = true;
+        blockedImportedInvalidIcon = true;
       }
     }
     if (typeof settings.icon.embedSvg === "boolean") {
@@ -1426,16 +2048,38 @@ async function applySettings(settings, options = {}) {
     if (typeof settings.icon.uploadSvgText === "string") {
       uploadSvgText = settings.icon.uploadSvgText;
     }
+    if (typeof settings.icon.uploadImageDataUrl === "string") {
+      uploadImageDataUrl = settings.icon.uploadImageDataUrl;
+    }
   }
 
   if (settings.fields && typeof settings.fields === "object") {
     if (typeof settings.fields.titleText === "string") getEl("titleText").value = settings.fields.titleText;
-    if (typeof settings.fields.fqdnLabel === "string") getEl("fqdnLabel").value = settings.fields.fqdnLabel;
-    if (typeof settings.fields.fqdnUrl === "string") getEl("fqdnUrl").value = settings.fields.fqdnUrl;
-    if (typeof settings.fields.networkText === "string") getEl("networkText").value = settings.fields.networkText;
-    if (typeof settings.fields.customText === "string") {
-      getEl("customText").value = settings.fields.customText;
-      blockImportedRemoteCustomImages = source === "import" && /<img\b/i.test(settings.fields.customText);
+
+    if (Array.isArray(settings.fields.hostEntries)) {
+      hostEntriesEl.innerHTML = "";
+      const values = settings.fields.hostEntries.length > 0 ? settings.fields.hostEntries : [{ icon: "🔗", label: "", url: "" }];
+      for (const value of values) {
+        if (value && typeof value === "object") {
+          hostEntriesEl.append(createHostEntryInput(String(value.label || ""), String(value.url || ""), String(value.icon || "🔗")));
+        }
+      }
+    } else if (typeof settings.fields.fqdnLabel === "string" || typeof settings.fields.fqdnUrl === "string") {
+      hostEntriesEl.innerHTML = "";
+      hostEntriesEl.append(createHostEntryInput(String(settings.fields.fqdnLabel || ""), String(settings.fields.fqdnUrl || ""), "🔗"));
+    }
+
+    if (Array.isArray(settings.fields.networkEntries)) {
+      networkEntriesEl.innerHTML = "";
+      const values = settings.fields.networkEntries.length > 0 ? settings.fields.networkEntries : [{ icon: "🖥️", value: "" }];
+      for (const value of values) {
+        if (value && typeof value === "object") {
+          networkEntriesEl.append(createNetworkEntryInput(String(value.value || ""), String(value.icon || "🖥️")));
+        }
+      }
+    } else if (typeof settings.fields.networkText === "string") {
+      networkEntriesEl.innerHTML = "";
+      networkEntriesEl.append(createNetworkEntryInput(String(settings.fields.networkText || ""), "🖥️"));
     }
 
     if (Array.isArray(settings.fields.configLocations)) {
@@ -1452,16 +2096,18 @@ async function applySettings(settings, options = {}) {
   }
 
   if (settings.rows && typeof settings.rows === "object") {
-    for (const { prefix } of rowConfigs) {
-      if (settings.rows[prefix] && typeof settings.rows[prefix] === "object") {
-        applyRowState(prefix, settings.rows[prefix]);
+    for (const [key, rowState] of Object.entries(settings.rows)) {
+      const normalized = normalizeRowKey(key);
+      if (!normalized || normalized === "icon" || !rowState || typeof rowState !== "object") {
+        continue;
       }
+      applyRowState(normalized, rowState);
     }
   }
 
   await prepareIcon();
-  if (blockedImportedRemoteIcon) {
-    setIconStatus("Imported external icon URL was not auto-loaded. Review it and re-enable LINK to allow the request.", true);
+  if (blockedImportedInvalidIcon) {
+    setIconStatus("Imported icon URL blocked. Allowed image types: .svg .gif .jpeg .jpg .png .tif .webp", true);
   }
 }
 
@@ -1496,24 +2142,27 @@ async function importSettingsFromFile(event) {
   }
 }
 
+async function fetchAndApplySettings(path, source, errorMessage) {
+  try {
+    const res = await fetch(path, { cache: "no-store" });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const parsed = await res.json();
+    await applySettings(parsed, { source });
+    return true;
+  } catch {
+    console.error(errorMessage);
+    return false;
+  }
+}
+
 async function loadPresetByNumber(number) {
   const preset = Number.parseInt(String(number), 10);
   if (!Number.isFinite(preset) || preset < 1 || preset > 5) {
     return false;
   }
-
-  try {
-    const res = await fetch(`./templates/notebuddy-template-${preset}.json`, { cache: "no-store" });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    const parsed = await res.json();
-    await applySettings(parsed);
-    return true;
-  } catch {
-    console.error(`Could not load template ${preset}.`);
-    return false;
-  }
+  return fetchAndApplySettings(`./templates/notebuddy-template-${preset}.json`, "preset", `Could not load template ${preset}.`);
 }
 
 function flashLoadedPresetButton(buttonEl) {
@@ -1574,20 +2223,13 @@ function normalizeTemplateCatalog(payload) {
 // Load template index from the canonical index.json location.
 async function loadPublicTemplateCatalog() {
   try {
-    const indexCandidates = [
-      "./templates/services/index.json",
-      "./public/index.json",
-    ];
-    for (const indexPath of indexCandidates) {
-      const res = await fetch(indexPath, { cache: "no-store" });
-      if (!res.ok) {
-        continue;
-      }
-      const payload = await res.json();
-      publicTemplateCatalog = normalizeTemplateCatalog(payload);
+    const res = await fetch("./templates/index.json", { cache: "no-store" });
+    if (!res.ok) {
+      publicTemplateCatalog = [];
       return;
     }
-    publicTemplateCatalog = [];
+    const payload = await res.json();
+    publicTemplateCatalog = normalizeTemplateCatalog(payload);
   } catch {
     publicTemplateCatalog = [];
   }
@@ -1667,21 +2309,12 @@ function toPublicTemplatePath(file) {
 }
 
 // Load and apply a selected service template JSON from the catalog.
-async function loadPublicTemplateFile(file, displayName = "") {
+async function loadPublicTemplateFile(file) {
   const path = toPublicTemplatePath(file);
   if (!path) {
     return;
   }
-  try {
-    const res = await fetch(path, { cache: "no-store" });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    const parsed = await res.json();
-    await applySettings(parsed);
-  } catch {
-    console.error("Could not load selected public template.");
-  }
+  await fetchAndApplySettings(path, "template", "Could not load selected public template.");
 }
 
 // ===== Preview / Icon Rendering =====
@@ -1708,6 +2341,86 @@ function toggleSupportMenu() {
   const nextExpanded = supportMenuBtn.getAttribute("aria-expanded") !== "true";
   supportMenuBtn.setAttribute("aria-expanded", nextExpanded ? "true" : "false");
   supportMenuList.classList.toggle("hidden", !nextExpanded);
+}
+
+function setEmojiRailCollapsed(collapsed) {
+  if (!emojiRailEl || !emojiRailToggleEl) {
+    return;
+  }
+  emojiRailEl.classList.toggle("collapsed", collapsed);
+  emojiRailToggleEl.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  if (emojiRailToggleCloseEl) {
+    emojiRailToggleCloseEl.classList.toggle("hidden", collapsed);
+  }
+  if (emojiRailToggleOpenIconEl) {
+    emojiRailToggleOpenIconEl.classList.toggle("hidden", !collapsed);
+  }
+  try {
+    localStorage.setItem(EMOJI_RAIL_STORAGE_KEY, collapsed ? "1" : "0");
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function loadEmojiRailCollapsed() {
+  try {
+    return localStorage.getItem(EMOJI_RAIL_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function setEmojiRailStatus(text) {
+  if (!emojiRailStatusEl) {
+    return;
+  }
+  emojiRailStatusEl.textContent = text;
+  if (!text) {
+    return;
+  }
+  window.setTimeout(() => {
+    if (emojiRailStatusEl.textContent === text) {
+      emojiRailStatusEl.textContent = "";
+    }
+  }, 1200);
+}
+
+function initEmojiRail() {
+  if (!emojiRailEl || !emojiRailToggleEl || !emojiRailListEl) {
+    return;
+  }
+
+  emojiRailListEl.innerHTML = PROXMOX_NOTE_EMOJIS.map(
+    (emoji) => `<button type="button" class="emoji-chip" data-emoji="${escapeHtml(emoji)}" title="Copy ${escapeHtml(emoji)}">${escapeHtml(emoji)}</button>`
+  ).join("");
+
+  setEmojiRailCollapsed(loadEmojiRailCollapsed());
+
+  emojiRailToggleEl.addEventListener("click", () => {
+    const isCollapsed = emojiRailEl.classList.contains("collapsed");
+    setEmojiRailCollapsed(!isCollapsed);
+  });
+
+  emojiRailListEl.addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const button = target.closest(".emoji-chip");
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    const emoji = button.getAttribute("data-emoji") || button.textContent || "";
+    if (!emoji) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(emoji);
+      setEmojiRailStatus("Copied");
+    } catch {
+      setEmojiRailStatus("Clipboard blocked");
+    }
+  });
 }
 
 function iconCanUseScale() {
@@ -1752,7 +2465,7 @@ function updateIconControls() {
   const url = iconUrlEl.value.trim();
   const rasterLink = mode === "external" && isRasterUrl(url);
   const externalSvg = mode === "external" && isSvgUrl(url);
-  const showVariantControls = mode === "upload" || (externalSvg && iconEmbedSvgEl.checked && !isWsrvResizeEnabled());
+  const showVariantControls = (mode === "upload" && Boolean(uploadSvgText)) || (externalSvg && iconEmbedSvgEl.checked && !isWsrvResizeEnabled());
   if (iconVariantWrapEl) {
     iconVariantWrapEl.classList.toggle("hidden", !showVariantControls);
   }
@@ -1792,9 +2505,17 @@ async function prepareIcon() {
   }
 
   if (mode === "upload") {
+    if (uploadImageDataUrl) {
+      iconResolvedSrc = uploadImageDataUrl;
+      setIconStatus("Uploaded raster image embedded. Scaling and color transform are only available for SVG.");
+      updateIconControls();
+      renderOutput();
+      return;
+    }
+
     if (!uploadSvgText) {
       iconResolvedSrc = "";
-      setIconStatus("Upload an SVG to embed the icon.");
+      setIconStatus("Upload an SVG or PNG/JPEG/GIF/WEBP to directly embed the icon. 6 KB file size limit for raster images.");
       renderOutput();
       return;
     }
@@ -1826,6 +2547,13 @@ async function prepareIcon() {
     return;
   }
 
+  if (!isAllowedIconImageUrl(url)) {
+    iconResolvedSrc = "";
+    setIconStatus("Unsupported icon URL. Allowed image types: .svg .gif .jpeg .jpg .png .tif .webp", true);
+    renderOutput();
+    return;
+  }
+
   if (isWsrvResizeEnabled()) {
     iconResolvedSrc = buildWsrvUrl(url, iconScaleEl.value);
     setIconStatus(`wsrv.nl resize enabled at ${iconScaleEl.value}px width.`);
@@ -1837,14 +2565,6 @@ async function prepareIcon() {
   if (isRasterUrl(url)) {
     iconResolvedSrc = url;
     setIconStatus("Raster image detected: link-only mode (no scaling). Use CDN-sized assets.");
-    updateIconControls();
-    renderOutput();
-    return;
-  }
-
-  if (!isSvgUrl(url)) {
-    iconResolvedSrc = url;
-    setIconStatus("Unknown extension: using direct link.");
     updateIconControls();
     renderOutput();
     return;
@@ -1903,6 +2623,125 @@ function setTheme(theme) {
   }
 }
 
+function createStackRemoveButton(row) {
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "icon-clear";
+  remove.textContent = "✕";
+  remove.addEventListener("click", () => {
+    row.remove();
+    renderOutput();
+  });
+  return remove;
+}
+
+function createHostEntryInput(initialLabel = "", initialUrl = "", initialIcon = "🔗") {
+  const row = document.createElement("div");
+  row.className = "stack-row host-entry-row";
+
+  const iconField = document.createElement("label");
+  iconField.className = "icon-field";
+  iconField.textContent = "";
+
+  const iconWrap = document.createElement("span");
+  iconWrap.className = "icon-input-wrap";
+
+  const iconInput = document.createElement("input");
+  iconInput.type = "text";
+  iconInput.maxLength = 8;
+  iconInput.value = initialIcon;
+  iconInput.setAttribute("data-host-icon", "1");
+
+  const iconClear = document.createElement("button");
+  iconClear.type = "button";
+  iconClear.className = "icon-clear";
+  iconClear.textContent = "✕";
+  iconClear.title = "Clear icon";
+  iconClear.addEventListener("click", () => {
+    iconInput.value = "";
+    renderOutput();
+  });
+
+  iconWrap.append(iconInput, iconClear);
+  iconField.append(iconWrap);
+
+  const fieldStack = document.createElement("div");
+  fieldStack.className = "field-stack host-fields";
+
+  const labelInput = document.createElement("input");
+  labelInput.type = "text";
+  labelInput.placeholder = "HOST";
+  labelInput.value = initialLabel;
+  labelInput.setAttribute("data-host-label", "1");
+
+  const urlInput = document.createElement("input");
+  urlInput.type = "url";
+  urlInput.placeholder = "HOST URL";
+  urlInput.value = initialUrl;
+  urlInput.setAttribute("data-host-url", "1");
+  urlInput.addEventListener("blur", () => {
+    const normalized = sanitizeFqdnHref(urlInput.value);
+    if (normalized && normalized !== urlInput.value.trim()) {
+      urlInput.value = normalized;
+      renderOutput();
+    }
+  });
+
+  fieldStack.append(labelInput, urlInput);
+
+  const remove = createStackRemoveButton(row);
+
+  row.append(iconField, fieldStack, remove);
+  iconInput.addEventListener("input", renderOutput);
+  labelInput.addEventListener("input", renderOutput);
+  urlInput.addEventListener("input", renderOutput);
+  return row;
+}
+
+function createNetworkEntryInput(initialValue = "", initialIcon = "🖥️") {
+  const row = document.createElement("div");
+  row.className = "stack-row network-entry-row";
+
+  const iconField = document.createElement("label");
+  iconField.className = "icon-field";
+  iconField.textContent = "";
+
+  const iconWrap = document.createElement("span");
+  iconWrap.className = "icon-input-wrap";
+
+  const iconInput = document.createElement("input");
+  iconInput.type = "text";
+  iconInput.maxLength = 8;
+  iconInput.value = initialIcon;
+  iconInput.setAttribute("data-network-icon", "1");
+
+  const iconClear = document.createElement("button");
+  iconClear.type = "button";
+  iconClear.className = "icon-clear";
+  iconClear.textContent = "✕";
+  iconClear.title = "Clear icon";
+  iconClear.addEventListener("click", () => {
+    iconInput.value = "";
+    renderOutput();
+  });
+
+  iconWrap.append(iconInput, iconClear);
+  iconField.append(iconWrap);
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = "NETWORK ADDRESS";
+  input.value = initialValue;
+  input.setAttribute("data-network-value", "1");
+
+  const remove = createStackRemoveButton(row);
+
+  row.append(iconField, input, remove);
+  iconInput.addEventListener("input", renderOutput);
+  input.addEventListener("input", renderOutput);
+  return row;
+}
+
 function createConfigLocationInput(initialValue = "", initialIcon = "📁") {
   const row = document.createElement("div");
   row.className = "stack-row config-location-row";
@@ -1923,7 +2762,7 @@ function createConfigLocationInput(initialValue = "", initialIcon = "📁") {
   const iconClear = document.createElement("button");
   iconClear.type = "button";
   iconClear.className = "icon-clear";
-  iconClear.textContent = "X";
+  iconClear.textContent = "✕";
   iconClear.title = "Clear icon";
   iconClear.addEventListener("click", () => {
     iconInput.value = "";
@@ -1939,14 +2778,7 @@ function createConfigLocationInput(initialValue = "", initialIcon = "📁") {
   input.value = initialValue;
   input.setAttribute("data-config-location", "1");
 
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "panel-action ghost";
-  remove.textContent = "X";
-  remove.addEventListener("click", () => {
-    row.remove();
-    renderOutput();
-  });
+  const remove = createStackRemoveButton(row);
 
   row.append(iconField, input, remove);
   iconInput.addEventListener("input", renderOutput);
@@ -1958,29 +2790,42 @@ async function onIconUploadChange(event) {
   const [file] = event.target.files;
   if (!file) {
     uploadSvgText = "";
+    uploadImageDataUrl = "";
     await prepareIcon();
     return;
   }
 
-  const byType = file.type === "image/svg+xml";
-  const byName = /\.svg$/i.test(file.name);
-  if (!byType && !byName) {
+  const isSvg = file.type === "image/svg+xml" || /\.svg$/i.test(file.name);
+  const isRaster = /^(image\/png|image\/jpe?g|image\/gif|image\/webp)$/i.test(file.type) || /\.(png|jpe?g|gif|webp)$/i.test(file.name);
+  if (!isSvg && !isRaster) {
     iconUploadEl.value = "";
     uploadSvgText = "";
-    setIconStatus("Only SVG upload is allowed. Use a CDN link for PNG/JPG/WEBP.", true);
-    await prepareIcon();
+    uploadImageDataUrl = "";
+    setIconStatus("Only SVG/PNG/JPEG/GIF/WEBP upload is allowed.", true);
+    updateIconControls();
+    renderOutput();
     return;
   }
 
   try {
-    assertFileSizeWithinLimit(file, MAX_UPLOAD_SVG_BYTES, "Uploaded SVG");
-    uploadSvgText = await readTextFile(file);
-    assertTextSizeWithinLimit(uploadSvgText, MAX_UPLOAD_SVG_BYTES, "Uploaded SVG");
+    if (isSvg) {
+      assertFileSizeWithinLimit(file, MAX_UPLOAD_SVG_BYTES, "Uploaded SVG");
+      uploadSvgText = await readTextFile(file);
+      assertTextSizeWithinLimit(uploadSvgText, MAX_UPLOAD_SVG_BYTES, "Uploaded SVG");
+      uploadImageDataUrl = "";
+    } else {
+      assertFileSizeWithinLimit(file, MAX_UPLOAD_RASTER_BYTES, "Uploaded raster image");
+      uploadImageDataUrl = await readDataUrlFile(file);
+      assertTextSizeWithinLimit(uploadImageDataUrl, MAX_OUTPUT_LENGTH, "Embedded raster image");
+      uploadSvgText = "";
+    }
     await prepareIcon();
   } catch (error) {
     uploadSvgText = "";
-    setIconStatus(error instanceof Error ? error.message : "Could not read uploaded SVG.", true);
-    await prepareIcon();
+    uploadImageDataUrl = "";
+    setIconStatus(error instanceof Error ? error.message : "Could not read uploaded icon file.", true);
+    updateIconControls();
+    renderOutput();
   }
 }
 
@@ -2012,12 +2857,11 @@ async function loadGithubStarCount() {
   githubStarCountEl.textContent = "--";
 
   try {
-    const res = await fetchWithPrivacy("https://api.github.com/repos/JangaJones/pve-notebuddy");
-    if (!res.ok) {
-      return;
-    }
-
-    const data = await res.json();
+    const data = await fetchJsonWithCache({
+      url: "https://api.github.com/repos/JangaJones/pve-notebuddy",
+      cacheKey: "pve-notebuddy:github:repo",
+      ttlMs: GITHUB_STARS_CACHE_TTL_MS,
+    });
     const stars = Number.parseInt(String(data?.stargazers_count ?? ""), 10);
     if (!Number.isFinite(stars)) {
       return;
@@ -2036,12 +2880,11 @@ async function loadReleaseVersionStatus() {
   setVersionStatus("Checking latest release...", "pending");
 
   try {
-    const res = await fetchWithPrivacy("https://api.github.com/repos/JangaJones/pve-notebuddy/releases/latest");
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-
-    const data = await res.json();
+    const data = await fetchJsonWithCache({
+      url: "https://api.github.com/repos/JangaJones/pve-notebuddy/releases/latest",
+      cacheKey: "pve-notebuddy:github:latest-release",
+      ttlMs: GITHUB_RELEASE_CACHE_TTL_MS,
+    });
     const latestTag = normalizeVersion(data?.tag_name);
     const releaseUrl = typeof data?.html_url === "string" && data.html_url ? data.html_url : "";
 
@@ -2056,16 +2899,16 @@ async function loadReleaseVersionStatus() {
 
     const comparison = compareVersions(APP_VERSION, latestTag);
     if (comparison < 0) {
-      setVersionStatus(`Update available: ${APP_VERSION} -> ${latestTag}`, "stale");
+      setVersionStatus(`Update available: ${latestTag}`, "stale");
       return;
     }
 
     if (comparison > 0) {
-      setVersionStatus(`Newer than latest release ${latestTag}`, "ok");
+      setVersionStatus(`Newer than ${latestTag}`, "ok");
       return;
     }
 
-    setVersionStatus(`Up to date with ${latestTag}`, "ok");
+    setVersionStatus(`Up to Date`, "ok");
   } catch {
     setVersionStatus("Release check unavailable.", "error");
   }
@@ -2075,16 +2918,36 @@ async function loadReleaseVersionStatus() {
 function bootstrap() {
   mountStyleToolbars();
   bindStyleConflicts();
-  initializeRowVisibility();
 
+  hostEntriesEl.append(createHostEntryInput("www.proxmox.com", "https://www.proxmox.com/", "🔗"));
+  networkEntriesEl.append(createNetworkEntryInput("10.2.0.40:8443", "🖥️"));
   configLocationsEl.append(createConfigLocationInput("/etc/app/config.yml"));
+  addCustomRow();
+  initializeRowVisibility();
+  initEmojiRail();
 
+  addHostBtn.addEventListener("click", () => {
+    hostEntriesEl.append(createHostEntryInput("", "", "🔗"));
+    renderOutput();
+  });
+  addNetworkBtn.addEventListener("click", () => {
+    networkEntriesEl.append(createNetworkEntryInput("", "🖥️"));
+    renderOutput();
+  });
   addConfigBtn.addEventListener("click", () => {
     configLocationsEl.append(createConfigLocationInput(""));
     renderOutput();
   });
+  addCustomRowBtn.addEventListener("click", () => {
+    addCustomRow();
+    renderOutput();
+  });
 
-  form.addEventListener("input", () => {
+  form.addEventListener("input", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLTextAreaElement && target.matches('textarea[data-custom-text="1"]') && blockImportedRemoteCustomImages) {
+      blockImportedRemoteCustomImages = false;
+    }
     renderOutput();
   });
   form.addEventListener("click", (event) => {
@@ -2110,6 +2973,22 @@ function bootstrap() {
       if (rowKey) {
         toggleRowVisibility(rowKey);
         renderOutput();
+      }
+      return;
+    }
+
+    const removeBtn = target.closest(".row-remove");
+    if (removeBtn instanceof HTMLElement) {
+      const rowKey = normalizeCustomRowKey(removeBtn.getAttribute("data-row-key"));
+      if (rowKey) {
+        const fieldset = getRowFieldset(rowKey);
+        if (fieldset) {
+          fieldset.remove();
+          if (getCustomRowFieldsets().length === 0) {
+            addCustomRow();
+          }
+          renderOutput();
+        }
       }
       return;
     }
@@ -2144,24 +3023,6 @@ function bootstrap() {
     radio.addEventListener("change", prepareIcon);
   }
   iconUrlEl.addEventListener("input", prepareIcon);
-  const customTextInputEl = getEl("customText");
-  if (customTextInputEl) {
-    customTextInputEl.addEventListener("input", () => {
-      if (blockImportedRemoteCustomImages) {
-        blockImportedRemoteCustomImages = false;
-      }
-    });
-  }
-  const fqdnUrlInputEl = getEl("fqdnUrl");
-  if (fqdnUrlInputEl) {
-    fqdnUrlInputEl.addEventListener("blur", () => {
-      const normalized = sanitizeFqdnHref(fqdnUrlInputEl.value);
-      if (normalized && normalized !== fqdnUrlInputEl.value.trim()) {
-        fqdnUrlInputEl.value = normalized;
-        renderOutput();
-      }
-    });
-  }
   iconEmbedSvgEl.addEventListener("change", () => {
     if (iconEmbedSvgEl.checked && iconResizeWsrvEl) {
       iconResizeWsrvEl.checked = false;
@@ -2233,7 +3094,7 @@ function bootstrap() {
       if (!file) {
         return;
       }
-      await loadPublicTemplateFile(file, name);
+      await loadPublicTemplateFile(file);
       closeTemplateSuggest();
     });
 
@@ -2253,7 +3114,7 @@ function bootstrap() {
       }
       templateSearchInputEl.value = name;
       setTemplateSearchClearVisibility();
-      await loadPublicTemplateFile(file, name);
+      await loadPublicTemplateFile(file);
       closeTemplateSuggest();
     });
 

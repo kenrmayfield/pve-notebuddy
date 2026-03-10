@@ -14,7 +14,7 @@
     "configLocations": [
       {
         "icon": "📁",
-        "value": "/opt/reactive-resume/.env"
+        "value": "/opt/Reactive-Resume/.env"
       }
     ]
   }

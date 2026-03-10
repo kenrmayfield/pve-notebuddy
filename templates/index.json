@@ -41,11 +41,6 @@
       "source": "frontend/public/json/alpine-it-tools.json"
     },
     {
-      "name": "Alpine-Tinyauth",
-      "file": "alpine-tinyauth.json",
-      "source": "frontend/public/json/alpine-tinyauth.json"
-    },
-    {
       "name": "Ampache",
       "file": "ampache.json",
       "source": "frontend/public/json/ampache.json"
@@ -351,6 +346,11 @@
       "source": "frontend/public/json/dawarich.json"
     },
     {
+      "name": "ddclient",
+      "file": "ddclient.json",
+      "source": "frontend/public/json/ddclient.json"
+    },
+    {
       "name": "Debian",
       "file": "debian.json",
       "source": "frontend/public/json/debian.json"
@@ -389,11 +389,6 @@
       "name": "Docker",
       "file": "docker-vm.json",
       "source": "frontend/public/json/docker-vm.json"
-    },
-    {
-      "name": "Docker",
-      "file": "docker.json",
-      "source": "frontend/public/json/docker.json"
     },
     {
       "name": "Dockge",
@@ -1371,11 +1366,6 @@
       "source": "frontend/public/json/pairdrop.json"
     },
     {
-      "name": "Palmr",
-      "file": "palmr.json",
-      "source": "frontend/public/json/palmr.json"
-    },
-    {
       "name": "Pangolin",
       "file": "pangolin.json",
       "source": "frontend/public/json/pangolin.json"
@@ -1394,6 +1384,11 @@
       "name": "PaperlessAI",
       "file": "paperless-ai.json",
       "source": "frontend/public/json/paperless-ai.json"
+    },
+    {
+      "name": "Papra",
+      "file": "papra.json",
+      "source": "frontend/public/json/papra.json"
     },
     {
       "name": "Part-DB",
@@ -1506,9 +1501,19 @@
       "source": "frontend/public/json/postgresql.json"
     },
     {
+      "name": "PowerDNS",
+      "file": "powerdns.json",
+      "source": "frontend/public/json/powerdns.json"
+    },
+    {
       "name": "PrivateBin",
       "file": "privatebin.json",
       "source": "frontend/public/json/privatebin.json"
+    },
+    {
+      "name": "Profilarr",
+      "file": "profilarr.json",
+      "source": "frontend/public/json/profilarr.json"
     },
     {
       "name": "ProjectSend",
@@ -1841,6 +1846,11 @@
       "source": "frontend/public/json/stirling-pdf.json"
     },
     {
+      "name": "Strapi",
+      "file": "strapi.json",
+      "source": "frontend/public/json/strapi.json"
+    },
+    {
       "name": "Streamlink WebUI",
       "file": "streamlink-webui.json",
       "source": "frontend/public/json/streamlink-webui.json"
@@ -1854,11 +1864,6 @@
       "name": "Sure",
       "file": "sure.json",
       "source": "frontend/public/json/sure.json"
-    },
-    {
-      "name": "Suwayomi-Server",
-      "file": "suwayomi-server.json",
-      "source": "frontend/public/json/suwayomi-server.json"
     },
     {
       "name": "Swizzin",
@@ -1944,6 +1949,11 @@
       "name": "Tianji",
       "file": "tianji.json",
       "source": "frontend/public/json/tianji.json"
+    },
+    {
+      "name": "Tinyauth",
+      "file": "tinyauth.json",
+      "source": "frontend/public/json/tinyauth.json"
     },
     {
       "name": "Traccar",
@@ -2054,11 +2064,6 @@
       "name": "Unbound",
       "file": "unbound.json",
       "source": "frontend/public/json/unbound.json"
-    },
-    {
-      "name": "UniFi Network Server",
-      "file": "unifi.json",
-      "source": "frontend/public/json/unifi.json"
     },
     {
       "name": "Unifi OS Server",

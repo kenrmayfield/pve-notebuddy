@@ -7,7 +7,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https: http:; connect-src 'self' https: http:; form-action 'self';"
     />
-    <meta name="app-version" content="1.4" />
+    <meta name="app-version" content="1.4.1" />
     <title>PVE NoteBuddy</title>
     <link rel="icon" type="image/svg+xml" href="./resources/favicon.svg" />
     <link rel="stylesheet" href="./styles.css" />
@@ -41,7 +41,7 @@
                 autocomplete="off"
                 spellcheck="false"
               />
-              <button id="templateSearchClear" class="template-search-clear" type="button" aria-label="Clear search">X</button>
+              <button id="templateSearchClear" class="template-search-clear" type="button" aria-label="Clear search">✕</button>
               <div id="templateSuggest" class="template-suggest hidden" role="listbox" aria-label="Template suggestions"></div>
             </div>
             <button id="importBtn" type="button" class="panel-action">IMPORT</button>
@@ -123,7 +123,7 @@
 
 
             <label id="iconUploadWrap" class="hidden">
-              <input id="iconUpload" type="file" accept=".svg,image/svg+xml" />
+              <input id="iconUpload" type="file" accept=".svg,.png,.jpeg,.jpg,.gif,.webp,image/svg+xml,image/png,image/jpeg,image/gif,image/webp" />
             </label>
 
             <div id="iconEmbedWrap" class="scale-row">
@@ -195,7 +195,7 @@
               <label class="icon-field">
                 <span class="icon-input-wrap">
                   <input id="titleEmoji" type="text" value="" maxlength="8" />
-                  <button type="button" class="icon-clear" data-target="titleEmoji" title="Clear icon">X</button>
+                  <button type="button" class="icon-clear" data-target="titleEmoji" title="Clear icon">✕</button>
                 </span>
               </label>
               <div class="field-stack">
@@ -206,7 +206,7 @@
 
           <fieldset class="group" data-row-key="fqdn">
             <legend>Host</legend>
-            <div class="row-grid row-controls">
+            <div class="row-grid row-controls no-icon">
               <div class="style-tools" data-prefix="fqdn"></div>
               <div class="row-reorder">
                 <button type="button" class="row-visibility" data-row-key="fqdn" title="Hide row" aria-label="Hide row" aria-pressed="false">●</button>
@@ -214,23 +214,17 @@
                 <button type="button" class="row-move" data-row-key="fqdn" data-direction="down" title="Move down">↓</button>
               </div>
             </div>
-            <div class="row-grid row-fields with-icon">
-              <label class="icon-field">
-                <span class="icon-input-wrap">
-                  <input id="fqdnEmoji" type="text" value="🔗" maxlength="8" />
-                  <button type="button" class="icon-clear" data-target="fqdnEmoji" title="Clear icon">X</button>
-                </span>
-              </label>
-              <div class="field-stack host-fields">
-                <label><input id="fqdnLabel" type="text" value="www.proxmox.com" placeholder="HOST" /></label>
-                <label><input id="fqdnUrl" type="url" value="https://www.proxmox.com/" placeholder="HOST URL" /></label>
+            <div class="row-grid row-fields">
+              <div class="field-stack span-2">
+                <div id="hostEntries" class="stack"></div>
+                <button id="addHostBtn" type="button" class="panel-action ghost">ADD</button>
               </div>
             </div>
           </fieldset>
 
           <fieldset class="group" data-row-key="network">
             <legend>Network</legend>
-            <div class="row-grid row-controls">
+            <div class="row-grid row-controls no-icon">
               <div class="style-tools" data-prefix="network"></div>
               <div class="row-reorder">
                 <button type="button" class="row-visibility" data-row-key="network" title="Hide row" aria-label="Hide row" aria-pressed="false">●</button>
@@ -238,15 +232,10 @@
                 <button type="button" class="row-move" data-row-key="network" data-direction="down" title="Move down">↓</button>
               </div>
             </div>
-            <div class="row-grid row-fields with-icon">
-              <label class="icon-field">
-                <span class="icon-input-wrap">
-                  <input id="networkEmoji" type="text" value="🖥️" maxlength="8" />
-                  <button type="button" class="icon-clear" data-target="networkEmoji" title="Clear icon">X</button>
-                </span>
-              </label>
-              <div class="field-stack">
-                <label><input id="networkText" type="text" value="10.2.0.40:8443" placeholder="NETWORK ADDRESS" /></label>
+            <div class="row-grid row-fields">
+              <div class="field-stack span-2">
+                <div id="networkEntries" class="stack"></div>
+                <button id="addNetworkBtn" type="button" class="panel-action ghost">ADD</button>
               </div>
             </div>
           </fieldset>
@@ -269,21 +258,10 @@
             </div>
           </fieldset>
 
-          <fieldset class="group" data-row-key="custom">
-            <legend>Custom Notes</legend>
-            <div class="row-grid row-controls no-icon">
-              <div class="style-tools" data-prefix="custom"></div>
-              <div class="row-reorder">
-                <button type="button" class="row-visibility" data-row-key="custom" title="Hide row" aria-label="Hide row" aria-pressed="false">●</button>
-                <button type="button" class="row-move" data-row-key="custom" data-direction="up" title="Move up">↑</button>
-                <button type="button" class="row-move" data-row-key="custom" data-direction="down" title="Move down">↓</button>
-              </div>
-            </div>
-            <div class="row-grid row-fields">
-              <textarea id="customText" class="span-2" rows="4" placeholder="Any additional note..."></textarea>
-            </div>
-          </fieldset>
         </form>
+        <div class="panel-form-actions">
+          <button id="addCustomRowBtn" type="button" class="panel-action">ADD CUSTOM NOTE</button>
+        </div>
       </section>
 
         <section class="panel panel-preview">
@@ -339,6 +317,26 @@
       </div>
     </footer>
 
+    <aside id="emojiRail" class="emoji-rail" aria-label="Emoji copy bar">
+      <button id="emojiRailToggle" type="button" class="emoji-rail-toggle" aria-expanded="true" aria-controls="emojiRailPanel">
+        <span class="emoji-rail-toggle-close" aria-hidden="true">✕</span>
+        <img
+          class="emoji-rail-toggle-open-icon hidden"
+          src="./resources/icons/add_reaction_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg"
+          alt=""
+          aria-hidden="true"
+        />
+      </button>
+      <div id="emojiRailPanel" class="emoji-rail-panel">
+        <div class="emoji-rail-head">
+          <strong>Emoji Sidebar</strong>
+          <span id="emojiRailStatus" class="emoji-rail-status" aria-live="polite"></span>
+        </div>
+        <div id="emojiRailList" class="emoji-rail-list"></div>
+      </div>
+    </aside>
+
+    <script src="./resources/vendor/purify.min.js" defer></script>
     <script src="./app.js" defer></script>
   </body>
 </html>

@@ -11,6 +11,11 @@
     "fqdnLabel": "github.com/louislam/dockge",
     "fqdnUrl": "https://github.com/louislam/dockge",
     "networkText": "Default Port: 5001",
-    "configLocations": []
+    "configLocations": [
+      {
+        "icon": "📁",
+        "value": "/opt/dockge/compose.yaml"
+      }
+    ]
   }
 }
